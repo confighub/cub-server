@@ -1,0 +1,119 @@
+# cub-server
+
+`cub server` installs a ConfigHub instance you own and leaves you signed in to it.
+
+```sh
+cub plugin install confighub/cub-server
+cub server install -i
+```
+
+> While this repository is private, that first command needs a `GITHUB_TOKEN` with access to it —
+> `cub plugin install` sends it to the GitHub API. The line above is what it becomes when the
+> repository is made public; until then, see [Development](#development) to install a local build.
+
+That is the whole evaluation path. It creates a local Kubernetes cluster, deploys ConfigHub and
+a database into it, waits for the instance to answer, and signs you in — so the command ends
+with a working session rather than with a list of next steps.
+
+```sh
+cub space list               # already authenticated
+cub auth browser-session     # same session, in a browser
+```
+
+## Why there is no identity provider to set up
+
+ConfigHub can run with no IdP configured. The instance is created with a single local
+administrator, and `cub server install` generates that administrator's keypair as part of the
+install: the public half goes into the instance's configuration, and the private half is written
+to cub's key directory, where `cub auth login --private-key` finds it.
+
+So there is no Keycloak to stand up, no realm to import, no redirect URI to have registered by
+somebody with admin, and no password anywhere. What the instance stores is a public key.
+
+## Prerequisites
+
+- **Docker**, running. That is all, for the default path.
+- **kind** and **kubectl** on your PATH.
+
+Installing into a cluster you already have needs only `kubectl` and a kubeconfig.
+
+The ConfigHub server image is public on ghcr.io, so no registry credentials are needed.
+
+## What it installs
+
+Into a namespace (`confighub` by default):
+
+| | |
+|---|---|
+| ConfigHub | API and UI on a NodePort, OCI registry on another |
+| PostgreSQL | bundled by default; `--database=external` points at your own |
+
+The API is published on a real host port rather than through `kubectl port-forward`, so the URL
+keeps working after you close the terminal. That is why the NodePorts are fixed defaults: kind
+has to publish them when the node container is created, before there is a cluster to ask.
+
+## Targets
+
+```sh
+cub server install                                          # create a kind cluster
+cub server install --target=context --kube-context=my-cluster   # use one you have
+```
+
+Both render the same manifests. An evaluation on a laptop and a real deployment differ in where
+they run, not in what runs.
+
+## Re-running is safe
+
+Every generated value — the token signing key, the worker master secret, the database password,
+the administrator's public key — is read back from the previous run's output and reused. Rotating
+the signing key would log every session out; rotating the worker master secret would break every
+worker that had enrolled. So re-running resumes rather than replacing, and a re-run after a
+failed one picks up where it stopped.
+
+```sh
+cub server install --dry-run    # render everything, create nothing
+```
+
+## Where things are
+
+Everything one install produced lives in one directory (`~/.confighub/servers/<name>` by
+default, or `--out-dir`):
+
+```
+config/       manifests. No secrets — committable and diffable.
+secrets/      the Secret. Not committable.
+kubeconfig    for the cluster this install created
+kind-cluster.yaml
+```
+
+The administrator's private key is **not** there. It goes to cub's key directory, because it is a
+credential rather than deployment state, and because it must never reach the cluster — that is
+what makes the public half safe to sit in a ConfigMap.
+
+## Uninstalling
+
+```sh
+cub server uninstall                 # delete the cluster and the generated config
+cub server uninstall --keep-config   # keep the config, so a reinstall is the same instance
+```
+
+For a kind install this deletes the cluster and everything in it, database included. For an
+install into an existing cluster it deletes the namespace and leaves the cluster alone. Your
+private key is never touched.
+
+## Development
+
+```sh
+make build          # bin/cub-server
+make plugin         # install this build into cub, through cub's own installer
+make check          # fmt-check + vet + test
+```
+
+`make plugin` goes through `cub plugin install ./bin/cub-server` rather than dropping a binary
+into the plugin directory, so local development exercises the same path a release does —
+including the install hook that writes `cub-plugin.yaml`.
+
+> **Note:** `go.mod` carries a `replace` pointing `github.com/confighub/sdk/core` at a sibling
+> SDK checkout, because the `serverconfig` package this plugin builds on is not published yet.
+> Until it ships, point that line at a checkout that has it. It comes out entirely once the
+> package is released.

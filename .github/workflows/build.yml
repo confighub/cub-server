@@ -1,0 +1,55 @@
+name: build
+
+# CI build: verify cub-server compiles and tests pass, and produce the binaries
+# we ship — linux/amd64 and darwin/arm64. Pure Go, so both cross-compile from a
+# single Linux runner (make dist sets CGO_ENABLED=0). Same Makefile targets as
+# local dev, so CI and local builds stay identical.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: make check
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags, so `git describe` can stamp the version
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: make dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cub-server-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/cub-server-${{ matrix.goos }}-${{ matrix.goarch }}*
+          if-no-files-found: error
