@@ -1,23 +1,25 @@
 # cub-server
 
-`cub server` installs a ConfigHub instance you own and leaves you signed in to it.
+`cub server` installs a self-hosted ConfigHub Server instance in your infrastructure.
+
+The simplest usage:
 
 ```sh
 cub plugin install confighub/cub-server
 cub server install -i
 ```
 
-> While this repository is private, that first command needs a `GITHUB_TOKEN` with access to it —
-> `cub plugin install` sends it to the GitHub API. The line above is what it becomes when the
-> repository is made public; until then, see [Development](#development) to install a local build.
+This creates a local Kubernetes cluster (using the kind Go library), deploys ConfigHub and
+a database into it, waits for the instance to answer, and signs you in. Once complete,  you can immediately start using ConfigHub CLI, e.g:
 
-That is the whole evaluation path. It creates a local Kubernetes cluster, deploys ConfigHub and
-a database into it, waits for the instance to answer, and signs you in — so the command ends
-with a working session rather than with a list of next steps.
+```
+cub space list
+```
 
-```sh
-cub space list               # already authenticated
-cub auth browser-session     # same session, in a browser
+You can also log into the Web UI by using the authenticated CLI to start a browser session:
+
+```
+cub auth browser-session
 ```
 
 ## Why there is no identity provider to set up

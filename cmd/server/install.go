@@ -73,6 +73,7 @@ func init() {
 	f.IntVar(&installOpts.OCINodePort, "oci-node-port", 0, fmt.Sprintf("Host port the OCI registry answers on (default %d)", install.DefaultOCINodePort))
 
 	f.StringVar(&installOpts.AdminKeyName, "admin-key-name", "", "Name for the administrator key in cub's key directory (default "+install.DefaultAdminKeyName+")")
+	f.BoolVar(&installOpts.NewAdminKey, "new-admin-key", false, "Generate a new administrator keypair instead of reusing one already in cub's key store")
 	f.StringVar(&installOpts.OutDir, "out-dir", "", "Where to write the generated manifests (default ~/.confighub/servers/<name>)")
 
 	f.BoolVar(&installOpts.DryRun, "dry-run", false, "Generate everything and create nothing")

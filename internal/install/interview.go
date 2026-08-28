@@ -99,6 +99,35 @@ func Interview(in io.Reader, out io.Writer, o *Options) error {
 		}
 	}
 
+	// Only worth asking when there is something to decide: a key of this name
+	// already exists, so the install either adopts that administrator or mints
+	// another one under a different name.
+	if !o.NewAdminKey {
+		name := o.AdminKeyName
+		if name == "" {
+			name = DefaultAdminKeyName
+		}
+		if path, exists := keyExists(name); exists {
+			answer, err := choose(r, out,
+				fmt.Sprintf("An administrator key named %q is already here (%s).", name, path),
+				[]string{
+					"reuse it -- you can already sign in with this key",
+					"generate a new one under a different name",
+				}, 1)
+			if err != nil {
+				return err
+			}
+			if answer == 2 {
+				o.NewAdminKey = true
+				newName, err := ask(r, out, "Name for the new key", name+"-2")
+				if err != nil {
+					return err
+				}
+				o.AdminKeyName = newName
+			}
+		}
+	}
+
 	if o.Image == "" {
 		image, err := ask(r, out, "Server image", defaultImage())
 		if err != nil {

@@ -168,3 +168,36 @@ func ValidateAdminPublicJWK(raw string) error {
 	}
 	return nil
 }
+
+// PublicJWKFromPrivate recovers the public half of a stored private key.
+//
+// The two halves differ only by the members that carry secret material and the
+// one naming the identity, so the public key an instance should trust can be
+// derived from the private key its operator already holds. That is what lets an
+// uninstall followed by an install keep working with the key you have, rather
+// than stranding it.
+//
+// Validated on the way out, so a corrupt or unsupported key is refused here
+// rather than at the server's first start.
+func PublicJWKFromPrivate(privateJWK []byte) (string, error) {
+	var members map[string]any
+	if err := json.Unmarshal(privateJWK, &members); err != nil {
+		return "", fmt.Errorf("not a usable private key: %w", err)
+	}
+
+	// Everything that must not be published: secret material across every key
+	// type, plus the member recording which identity holds the key, which is a
+	// property of the holder's copy and not of the key.
+	for _, member := range []string{"d", "p", "q", "dp", "dq", "qi", "oth", "k", jwk.UserExternalIDMember} {
+		delete(members, member)
+	}
+
+	out, err := json.Marshal(members)
+	if err != nil {
+		return "", err
+	}
+	if _, err := publickey.FromJWK(out); err != nil {
+		return "", fmt.Errorf("the stored private key does not yield a usable public key: %w", err)
+	}
+	return string(out), nil
+}

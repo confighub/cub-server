@@ -109,11 +109,28 @@ func generate(u UI, o *Options) ([]config.File, string, error) {
 	}
 
 	opts := o.deploymentOptions()
-	if priorAdminJWK != "" {
+	switch {
+	case priorAdminJWK != "":
 		// Replacing this would register a new key at the next start and strand
 		// the private key the operator already holds.
 		opts.AdminPublicJWK = priorAdminJWK
 		u.detail("keeping the administrator key from the previous run")
+
+	case !o.NewAdminKey:
+		// No previous run to read, but the operator may still hold a key from
+		// one -- uninstall deliberately leaves it, since a credential is not
+		// deployment state. Reuse it rather than minting a second key that
+		// collides with it by name, which is what an uninstall followed by an
+		// install used to do.
+		public, path, err := reusableAdminKey(o.AdminKeyName)
+		if err != nil {
+			return nil, "", err
+		}
+		if public != "" {
+			opts.AdminPublicJWK = public
+			u.detail("reusing the administrator key already in cub's key store (%s)", path)
+			u.detail("pass --new-admin-key to generate a new one instead")
+		}
 	}
 
 	surface, err := config.Build(opts, prior)
@@ -192,13 +209,13 @@ func persistAdminKey(u UI, o *Options, surface *config.Surface) (string, error) 
 	}
 
 	if path, exists := keyExists(o.AdminKeyName); exists {
-		// The generator minted a key and the store already holds one under this
-		// name. Writing would be refused, and overwriting would strand whatever
-		// the existing one belongs to.
+		// Only reachable with --new-admin-key: without it the existing key would
+		// have been reused rather than a new one minted. Overwriting would
+		// strand whatever the existing key belongs to.
 		return "", fmt.Errorf(
-			"a key named %q already exists at %s, but this run generated a new one.\n"+
-				"    Pass --admin-key-name to store this instance's key under a different name,\n"+
-				"    or remove that file if it is no longer needed",
+			"--new-admin-key generated a key, but %q already exists at %s.\n"+
+				"    Pass --admin-key-name to store the new one under a different name,\n"+
+				"    or remove that file if it is no longer needed.",
 			o.AdminKeyName, path)
 	}
 
@@ -208,6 +225,29 @@ func persistAdminKey(u UI, o *Options, surface *config.Surface) (string, error) 
 	}
 	u.detail("wrote the administrator key to %s", path)
 	return path, nil
+}
+
+// reusableAdminKey returns the public half of a key already in cub's key store,
+// so an install can adopt an administrator the operator can already sign in as.
+//
+// Empty with no error means there is no such key, which is the ordinary first
+// install. An unreadable or unusable one is an error rather than a silent
+// regeneration: minting a second key under a name that is already taken is the
+// failure this exists to avoid.
+func reusableAdminKey(name string) (public, path string, err error) {
+	path, exists := keyExists(name)
+	if !exists {
+		return "", "", nil
+	}
+	privateJWK, err := os.ReadFile(path)
+	if err != nil {
+		return "", "", fmt.Errorf("reading the existing administrator key %s: %w", path, err)
+	}
+	public, err = config.PublicJWKFromPrivate(privateJWK)
+	if err != nil {
+		return "", "", fmt.Errorf("%s: %w", path, err)
+	}
+	return public, path, nil
 }
 
 // outDirFlag echoes back a non-default --out-dir, so the recovery commands this

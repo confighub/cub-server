@@ -60,6 +60,14 @@ type Options struct {
 
 	AdminKeyName string
 
+	// NewAdminKey forces a fresh administrator keypair even when one of that
+	// name is already in cub's key store.
+	//
+	// The default is to reuse, because uninstall leaves the key behind on
+	// purpose -- a credential is not deployment state -- so reinstalling should
+	// keep working with the key you already hold.
+	NewAdminKey bool
+
 	// OutDir is where the generated manifests are written. They are kept rather
 	// than discarded because they are the record of what was installed, and
 	// because re-running reads them back to avoid rotating generated secrets.
