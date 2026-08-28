@@ -3,7 +3,7 @@ module github.com/confighub/cub-server
 go 1.25.0
 
 require (
-	github.com/confighub/sdk/core v0.0.0
+	github.com/confighub/sdk/core v0.4.3
 	github.com/spf13/cobra v1.10.2
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -50,13 +50,3 @@ require (
 	sigs.k8s.io/kustomize/kyaml v0.18.1 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
-
-// TEMPORARY: sdk/core/serverconfig is not published yet.
-//
-// It is the table of everything the ConfigHub server reads, and the reason this
-// plugin can stay thin. Until it ships in a released sdk/core, point this at a
-// local checkout that has it -- a sibling clone of the SDK by default.
-//
-// Delete this block once it is published; the import path does not change, only
-// where it resolves from.
-replace github.com/confighub/sdk/core => ../sdk/core

@@ -113,7 +113,19 @@ make check          # fmt-check + vet + test
 into the plugin directory, so local development exercises the same path a release does —
 including the install hook that writes `cub-plugin.yaml`.
 
-> **Note:** `go.mod` carries a `replace` pointing `github.com/confighub/sdk/core` at a sibling
-> SDK checkout, because the `serverconfig` package this plugin builds on is not published yet.
-> Until it ships, point that line at a checkout that has it. It comes out entirely once the
-> package is released.
+It depends only on released modules, so a clean checkout builds.
+
+## Generating credentials on their own
+
+`cub server install` generates all three of these itself. These exist for the cases that are not
+a fresh install — bringing your own configuration, rotating one value, or generating in one place
+and deploying from another. Each writes one value to stdout, so it can be piped:
+
+```sh
+cub server key admin           # the local administrator's keypair
+cub server key signing         # JWT_PRIVATE_KEY_JWK
+cub server key worker-secret   # WORKER_MASTER_SECRET
+```
+
+`key admin` splits the halves: the public one to stdout for the instance's configuration, the
+private one into cub's key directory where `cub auth login --private-key` finds it.

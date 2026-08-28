@@ -1,0 +1,45 @@
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: redirect-to-https
+  namespace: confighub
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: confighub-redirect-http
+  namespace: confighub
+spec:
+  entryPoints:
+  - web
+  routes:
+  - match: Host(`confighub.example.com`)
+    kind: Rule
+    priority: 1
+    middlewares:
+    - name: redirect-to-https
+    services:
+    - name: confighub-api
+      port: 9090
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: confighub-api-https
+  namespace: confighub
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  # /internal is not routed. It carries the liveness endpoint, pprof, and the
+  # shutdown handler, none of which should be reachable from outside.
+  - match: Host(`confighub.example.com`)
+    kind: Rule
+    services:
+    - name: confighub-api
+      port: 9090
+  tls: {}

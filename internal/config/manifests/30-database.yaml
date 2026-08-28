@@ -1,0 +1,67 @@
+# Bundled PostgreSQL.
+#
+# For evaluation and CI. A long-lived install should point at a managed database
+# with --database=external and let something else own backups and upgrades.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: confighub-postgres
+  namespace: confighub
+spec:
+  serviceName: confighub-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: confighub-postgres
+  template:
+    metadata:
+      labels:
+        app: confighub-postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:17-alpine
+        env:
+        - name: POSTGRES_DB
+          value: confighub
+        - name: POSTGRES_USER
+          value: confighub
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: confighub-secret-env
+              key: POSTGRES_PASSWORD
+        # The mount contains lost+found, which Postgres refuses to initialise
+        # into, so the data directory is a subdirectory of it.
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        ports:
+        - containerPort: 5432
+          name: postgres
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: confighub-postgres
+  namespace: confighub
+  labels:
+    app: confighub-postgres
+spec:
+  ports:
+  - name: postgres
+    port: 5432
+    targetPort: 5432
+  selector:
+    app: confighub-postgres

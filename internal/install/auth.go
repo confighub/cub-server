@@ -22,7 +22,7 @@ import (
 // here would be a second implementation of the thing most worth having only one
 // of.
 
-// cubStore opens cub's own configuration, from wherever this process is being
+// CubStore opens cub's own configuration, from wherever this process is being
 // run from.
 //
 // CUB_CONFIG does not mean the same thing to everyone, which is the trap this
@@ -38,7 +38,7 @@ import (
 //
 // Accepting both spellings here rather than picking one: cub-server has to work
 // with the cub that is installed, and both readings are live.
-func cubStore() (*cubapi.Store, error) {
+func CubStore() (*cubapi.Store, error) {
 	path := os.Getenv("CUB_CONFIG")
 	if path == "" {
 		return cubapi.LoadConfig("")
@@ -55,7 +55,7 @@ func cubStore() (*cubapi.Store, error) {
 // The private half never reaches the cluster; that is what makes the public half
 // safe to sit in a ConfigMap.
 func writeAdminKey(name, privateJWK string) (string, error) {
-	store, err := cubStore()
+	store, err := CubStore()
 	if err != nil {
 		return "", err
 	}
@@ -80,7 +80,7 @@ func cubBinary() (string, error) {
 // earlier version of this created a context up front and had cub quietly
 // replace it, leaving a stray behind.
 func activeContextName() string {
-	store, err := cubStore()
+	store, err := CubStore()
 	if err != nil {
 		return ""
 	}
@@ -112,7 +112,7 @@ func verify(ctx context.Context, cub string) error {
 // re-run that refusal would abort an install that is otherwise fine. Checking
 // first lets a re-run say "reusing the existing key" instead.
 func keyExists(name string) (string, bool) {
-	store, err := cubStore()
+	store, err := CubStore()
 	if err != nil {
 		return "", false
 	}

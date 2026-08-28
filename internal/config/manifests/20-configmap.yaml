@@ -1,0 +1,17 @@
+# Non-secret configuration.
+#
+# Every key here is read by the server. Nothing that is not read appears, which
+# is a property of generating this rather than maintaining it: there is nowhere
+# an unused key could come from.
+#
+# Safe to commit. Secrets are in the secrets/ directory.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: confighub-env
+  namespace: confighub
+# Filled from the variable table in internal/config, which is the one place the
+# set of variables is declared. Listing them here as well would make
+# this a second declaration, and a second declaration is how a ConfigMap ends up
+# carrying keys the server stopped reading.
+data:

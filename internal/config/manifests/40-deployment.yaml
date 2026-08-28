@@ -1,0 +1,122 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: confighub
+  namespace: confighub
+  labels:
+    app: confighub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: confighub
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: confighub
+        app.kubernetes.io/name: confighub
+      annotations:
+        confighub.com/config-hash: ""
+    spec:
+      serviceAccountName: confighub
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+      - name: confighub-db-init
+        image: ghcr.io/confighubai/confighub:latest
+        command:
+        - /srv/app/confighub
+        args:
+        - db
+        - init
+        envFrom:
+        - configMapRef:
+            name: confighub-env
+        - secretRef:
+            name: confighub-secret-env
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          privileged: false
+        resources:
+          requests:
+            cpu: 128m
+            memory: 128Mi
+      - name: confighub-db-migrate
+        image: ghcr.io/confighubai/confighub:latest
+        command:
+        - /srv/app/confighub
+        args:
+        - db
+        - migrate
+        envFrom:
+        - configMapRef:
+            name: confighub-env
+        - secretRef:
+            name: confighub-secret-env
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          privileged: false
+        resources:
+          requests:
+            cpu: 128m
+            memory: 128Mi
+      containers:
+      - name: confighub
+        image: ghcr.io/confighubai/confighub:latest
+        # Not a restated default: it is the default only for a tagged image. A
+        # tag Kubernetes treats as floating flips it to Always, which fails on a
+        # cluster where the image was side-loaded rather than pushed.
+        imagePullPolicy: IfNotPresent
+        terminationMessagePolicy: FallbackToLogsOnError
+        envFrom:
+        - configMapRef:
+            name: confighub-env
+        - secretRef:
+            name: confighub-secret-env
+        ports:
+        - containerPort: 9090
+          name: http
+        - containerPort: 9092
+          name: oci
+        # /internal/ok, not /api/info: the internal path is the liveness check
+        # and is blocked at the ingress, so it answers only from inside.
+        livenessProbe:
+          httpGet:
+            path: /internal/ok
+            port: 9090
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /internal/ok
+            port: 9090
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /internal/ok
+            port: 9090
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 30
+        resources:
+          requests:
+            cpu: 500m
+            memory: 256Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          privileged: false

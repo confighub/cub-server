@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/confighub/sdk/core/serverconfig"
+	"github.com/confighub/cub-server/internal/config"
 )
 
 // Interactive mode fills the same Options struct the flags fill, and then the
@@ -85,9 +85,9 @@ func Interview(in io.Reader, out io.Writer, o *Options) error {
 			return err
 		}
 		if answer == 1 {
-			o.Database = string(serverconfig.DatabaseInternal)
+			o.Database = string(config.DatabaseInternal)
 		} else {
-			o.Database = string(serverconfig.DatabaseExternal)
+			o.Database = string(config.DatabaseExternal)
 			url, err := ask(r, out, "Connection string", "")
 			if err != nil {
 				return err

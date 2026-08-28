@@ -6,8 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/confighub/sdk/core/serverconfig"
-	"github.com/confighub/sdk/core/serverconfig/k8s"
+	"github.com/confighub/cub-server/internal/config"
 )
 
 func TestDefaultsFillEverythingNeededToInstall(t *testing.T) {
@@ -62,7 +61,7 @@ func TestValidateRejectsUnworkableCombinations(t *testing.T) {
 		},
 		{
 			name: "external database with no url",
-			o:    Options{Database: string(serverconfig.DatabaseExternal)},
+			o:    Options{Database: string(config.DatabaseExternal)},
 			want: "--database-url",
 		},
 		{
@@ -127,13 +126,13 @@ func TestInstanceNameSeparatesInstalls(t *testing.T) {
 func TestReadPriorRoundTripsGeneratedValues(t *testing.T) {
 	dir := t.TempDir()
 
-	opts := serverconfig.Options{Namespace: "confighub", APINodePort: 32180}
+	opts := config.Options{Namespace: "confighub", APINodePort: 32180}
 	opts.Defaults("ghcr.io/confighubai/confighub:test")
-	surface, err := serverconfig.Build(opts, nil)
+	surface, err := config.Build(opts, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	files, err := k8s.Render(surface, opts)
+	files, err := config.Render(surface, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +164,7 @@ func TestReadPriorRoundTripsGeneratedValues(t *testing.T) {
 	}
 
 	// The point of recovering them: a second Build reuses rather than rotates.
-	second, err := serverconfig.Build(opts, prior)
+	second, err := config.Build(opts, prior)
 	if err != nil {
 		t.Fatal(err)
 	}

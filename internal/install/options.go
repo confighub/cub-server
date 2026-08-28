@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/confighub/sdk/core/serverconfig"
+	"github.com/confighub/cub-server/internal/config"
 )
 
 // Target is where the instance is installed.
@@ -85,7 +85,7 @@ func (o *Options) Defaults() error {
 		o.Namespace = DefaultNamespace
 	}
 	if o.Database == "" {
-		o.Database = string(serverconfig.DatabaseInternal)
+		o.Database = string(config.DatabaseInternal)
 	}
 	if o.APINodePort == 0 {
 		o.APINodePort = DefaultAPINodePort
@@ -160,22 +160,22 @@ func (o *Options) Validate() error {
 	// The rest is the generator's own contract, checked by the same code that
 	// will check it again at Build time. Calling it here means a bad combination
 	// is reported before a cluster is created rather than after.
-	scOpts := o.serverconfigOptions()
+	scOpts := o.deploymentOptions()
 	return scOpts.Validate()
 }
 
-// serverconfigOptions projects onto the generator's option struct.
+// deploymentOptions projects onto the generator's option struct.
 //
 // The two are deliberately separate: this one describes an install (which
 // cluster, whether to create it, whether to log in), and the generator's
 // describes a deployment. Only the overlap crosses over.
-func (o *Options) serverconfigOptions() serverconfig.Options {
-	opts := serverconfig.Options{
+func (o *Options) deploymentOptions() config.Options {
+	opts := config.Options{
 		Namespace:   o.Namespace,
 		Image:       o.Image,
-		Database:    serverconfig.DatabaseMode(o.Database),
+		Database:    config.DatabaseMode(o.Database),
 		DatabaseURL: o.DatabaseURL,
-		Ingress:     serverconfig.IngressNone,
+		Ingress:     config.IngressNone,
 		APINodePort: o.APINodePort,
 		OCINodePort: o.OCINodePort,
 	}

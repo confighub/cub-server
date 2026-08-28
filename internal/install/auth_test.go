@@ -23,7 +23,7 @@ func TestCubStoreAcceptsBothSpellingsOfCubConfig(t *testing.T) {
 
 	t.Run("directory, as cub sets it for a plugin", func(t *testing.T) {
 		t.Setenv("CUB_CONFIG", dir)
-		store, err := cubStore()
+		store, err := CubStore()
 		if err != nil {
 			t.Fatalf("a directory should be accepted: %v", err)
 		}
@@ -34,7 +34,7 @@ func TestCubStoreAcceptsBothSpellingsOfCubConfig(t *testing.T) {
 
 	t.Run("file, as cubapi documents it", func(t *testing.T) {
 		t.Setenv("CUB_CONFIG", configPath)
-		store, err := cubStore()
+		store, err := CubStore()
 		if err != nil {
 			t.Fatalf("a file path should be accepted: %v", err)
 		}
@@ -55,7 +55,7 @@ func TestCubStoreResolvesTheKeyDirectoryUnderTheConfigDirectory(t *testing.T) {
 	}
 	t.Setenv("CUB_CONFIG", dir)
 
-	store, err := cubStore()
+	store, err := CubStore()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestCubStoreOnADirectoryWithNoConfigYet(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CUB_CONFIG", dir)
 
-	store, err := cubStore()
+	store, err := CubStore()
 	if err != nil {
 		t.Fatalf("a fresh config directory should be usable: %v", err)
 	}

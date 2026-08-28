@@ -8,8 +8,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/confighub/sdk/core/serverconfig"
-	"github.com/confighub/sdk/core/serverconfig/k8s"
+	"github.com/confighub/cub-server/internal/config"
 	"gopkg.in/yaml.v3"
 )
 
@@ -101,7 +100,7 @@ func preflight(ctx context.Context, u UI, o *Options) error {
 // between them -- a dry run, a failed cluster create, a interrupted rollout --
 // leaves an instance configured to trust a key nobody holds. Nothing can
 // recover from that: only the holder ever had the private half.
-func generate(u UI, o *Options) ([]k8s.File, string, error) {
+func generate(u UI, o *Options) ([]config.File, string, error) {
 	u.step("Generating configuration")
 
 	prior, priorAdminJWK, err := readPrior(o.OutDir)
@@ -109,7 +108,7 @@ func generate(u UI, o *Options) ([]k8s.File, string, error) {
 		return nil, "", err
 	}
 
-	opts := o.serverconfigOptions()
+	opts := o.deploymentOptions()
 	if priorAdminJWK != "" {
 		// Replacing this would register a new key at the next start and strand
 		// the private key the operator already holds.
@@ -117,12 +116,21 @@ func generate(u UI, o *Options) ([]k8s.File, string, error) {
 		u.detail("keeping the administrator key from the previous run")
 	}
 
-	surface, err := serverconfig.Build(opts, prior)
+	surface, err := config.Build(opts, prior)
 	if err != nil {
 		return nil, "", err
 	}
 
-	files, err := k8s.Render(surface, opts)
+	// Before anything reaches disk. The manifests name the administrator's
+	// public key, so writing them first and failing here would leave an output
+	// directory configuring an administrator nobody can be -- the same
+	// unrecoverable state, arrived at through a later door.
+	keyPath, err := persistAdminKey(u, o, surface)
+	if err != nil {
+		return nil, "", err
+	}
+
+	files, err := config.Render(surface, opts)
 	if err != nil {
 		return nil, "", err
 	}
@@ -143,10 +151,6 @@ func generate(u UI, o *Options) ([]k8s.File, string, error) {
 	u.detail("wrote %d files to %s", len(files), o.OutDir)
 	u.detail("image: %s", opts.Image)
 
-	keyPath, err := persistAdminKey(u, o, surface)
-	if err != nil {
-		return nil, "", err
-	}
 	return files, keyPath, nil
 }
 
@@ -156,7 +160,7 @@ func generate(u UI, o *Options) ([]k8s.File, string, error) {
 // An empty path with no error means the public key was reused but its private
 // half is not in cub's key store -- the operator moved or deleted it. The
 // install can still proceed; only the sign-in cannot.
-func persistAdminKey(u UI, o *Options, surface *serverconfig.Surface) (string, error) {
+func persistAdminKey(u UI, o *Options, surface *config.Surface) (string, error) {
 	if surface.AdminKey == nil {
 		path, exists := keyExists(o.AdminKeyName)
 		if exists {
@@ -222,10 +226,10 @@ func outDirFlag(o *Options) string {
 // thing to lose, and these values are already sitting in the Secret in a form
 // meant to be read. A missing or unparseable previous run is not an error:
 // generating fresh is correct for a first run.
-func readPrior(outDir string) (serverconfig.Preserved, string, error) {
-	prior := serverconfig.Preserved{}
+func readPrior(outDir string) (config.Preserved, string, error) {
+	prior := config.Preserved{}
 
-	secretPath := filepath.Join(outDir, k8s.SecretsDir, "confighub-secret.yaml")
+	secretPath := filepath.Join(outDir, config.SecretsDir, "confighub-secret.yaml")
 	if data, err := os.ReadFile(secretPath); err == nil {
 		var doc struct {
 			StringData map[string]string `yaml:"stringData"`
@@ -240,13 +244,13 @@ func readPrior(outDir string) (serverconfig.Preserved, string, error) {
 	}
 
 	var adminJWK string
-	cmPath := filepath.Join(outDir, k8s.ConfigDir, "20-configmap.yaml")
+	cmPath := filepath.Join(outDir, config.ConfigDir, "20-configmap.yaml")
 	if data, err := os.ReadFile(cmPath); err == nil {
 		var doc struct {
 			Data map[string]string `yaml:"data"`
 		}
 		if yaml.Unmarshal(data, &doc) == nil {
-			adminJWK = doc.Data[serverconfig.AdminJWKEnv]
+			adminJWK = doc.Data[config.AdminJWKEnv]
 		}
 	} else if !os.IsNotExist(err) {
 		return nil, "", err
@@ -274,7 +278,7 @@ func provisionCluster(ctx context.Context, u UI, o *Options) (kubeEnv, error) {
 }
 
 // applyManifests applies the rendered files in their numbered order.
-func applyManifests(ctx context.Context, u UI, o *Options, kube kubeEnv, files []k8s.File) error {
+func applyManifests(ctx context.Context, u UI, o *Options, kube kubeEnv, files []config.File) error {
 	u.step("Installing ConfigHub")
 
 	paths := make([]string, 0, len(files))
@@ -297,7 +301,7 @@ func applyManifests(ctx context.Context, u UI, o *Options, kube kubeEnv, files [
 func awaitReady(ctx context.Context, u UI, o *Options, kube kubeEnv) error {
 	u.step("Waiting for it to come up")
 
-	if o.Database == string(serverconfig.DatabaseInternal) {
+	if o.Database == string(config.DatabaseInternal) {
 		u.detail("database...")
 		if err := kube.waitForRollout(ctx, o.Namespace, "statefulset", "confighub-postgres", rolloutTimeout); err != nil {
 			return err
@@ -370,7 +374,7 @@ func reportSuccess(u UI, o *Options, keyPath string, authenticated bool) error {
 	}
 
 	u.section("The Secret is not committable:",
-		filepath.Join(o.OutDir, k8s.SecretsDir),
+		filepath.Join(o.OutDir, config.SecretsDir),
 	)
 	return nil
 }
