@@ -1,36 +1,10 @@
-# cub-server
+# ConfigHub self-hosted server installation plugin
 
-`cub server` installs a self-hosted ConfigHub Server instance in your infrastructure.
+This plugin is intended for ConfigHub prospects, customers and design partners who have an existing engagement with ConfigHub and who are evaluating a self-hosted model. You do NOT need anything here to try out ConfigHub. Simply sign up at https://auth.confighub.com/sign-up and go get started at https://docs.confighub.com/get-started/tutorial/setup/.
 
-The simplest usage:
+## License requirements
 
-```sh
-cub plugin install confighub/cub-server
-cub server install -i
-```
-
-This creates a local Kubernetes cluster (using the kind Go library), deploys ConfigHub and
-a database into it, waits for the instance to answer, and signs you in. Once complete,  you can immediately start using ConfigHub CLI, e.g:
-
-```
-cub space list
-```
-
-You can also log into the Web UI by using the authenticated CLI to start a browser session:
-
-```
-cub auth browser-session
-```
-
-## Why there is no identity provider to set up
-
-ConfigHub can run with no IdP configured. The instance is created with a single local
-administrator, and `cub server install` generates that administrator's keypair as part of the
-install: the public half goes into the instance's configuration, and the private half is written
-to cub's key directory, where `cub auth login --private-key` finds it.
-
-So there is no Keycloak to stand up, no realm to import, no redirect URI to have registered by
-somebody with admin, and no password anywhere. What the instance stores is a public key.
+This plugin lets you install a self-hosted instance of ConfigHub. You must agree to and meet the requirements of the [EVALUATION LICENSE](EVALUATION-LICENSE.txt), before moving forward.
 
 ## Prerequisites
 
@@ -42,6 +16,28 @@ The cluster is created through kind's Go API, so the `kind` binary is not needed
 Installing into a cluster you already have needs only `kubectl` and a kubeconfig.
 
 The ConfigHub server image is public on ghcr.io, so no registry credentials are needed.
+
+## Install
+
+The simplest usage:
+
+```sh
+cub plugin install confighub/cub-server
+cub server install -i
+```
+
+This creates a local Kubernetes cluster (using the kind Go library), deploys ConfigHub and
+a database into it, waits for the instance to answer, and signs you in. Once complete, you can immediately start using ConfigHub CLI, e.g:
+
+```
+cub space list
+```
+
+You can also log into the Web UI by using the authenticated CLI to start a browser session:
+
+```
+cub auth browser-session
+```
 
 ## What it installs
 
@@ -78,9 +74,9 @@ failed one picks up where it stopped.
 cub server install --dry-run    # render everything, create nothing
 ```
 
-## Where things are
+## Install files
 
-Everything one install produced lives in one directory (`~/.confighub/servers/<name>` by
+Files produced by an install live in one directory (`~/.confighub/servers/<name>` by
 default, or `--out-dir`):
 
 ```
@@ -90,9 +86,7 @@ kubeconfig    for the cluster this install created
 kind-cluster.yaml
 ```
 
-The administrator's private key is **not** there. It goes to cub's key directory, because it is a
-credential rather than deployment state, and because it must never reach the cluster — that is
-what makes the public half safe to sit in a ConfigMap.
+One exception is the admin private key which is stored in `~/.confighub/keys` per cub CLI convention.
 
 ## Uninstalling
 
@@ -102,28 +96,12 @@ cub server uninstall --keep-config   # keep the config, so a reinstall is the sa
 ```
 
 For a kind install this deletes the cluster and everything in it, database included. For an
-install into an existing cluster it deletes the namespace and leaves the cluster alone. Your
-private key is never touched.
+install into an existing cluster it deletes the namespace and leaves the cluster alone. The
+private key is left behind, even if it was generated as part of the install.
 
-## Development
+## Custom generating key material
 
-```sh
-make build          # bin/cub-server
-make plugin         # install this build into cub, through cub's own installer
-make check          # fmt-check + vet + test
-```
-
-`make plugin` goes through `cub plugin install ./bin/cub-server` rather than dropping a binary
-into the plugin directory, so local development exercises the same path a release does —
-including the install hook that writes `cub-plugin.yaml`.
-
-It depends only on released modules, so a clean checkout builds.
-
-## Generating credentials on their own
-
-`cub server install` generates all three of these itself. These exist for the cases that are not
-a fresh install — bringing your own configuration, rotating one value, or generating in one place
-and deploying from another. Each writes one value to stdout, so it can be piped:
+`cub server install` generates several pieces of config automatically. These can also be generated piecemeal:
 
 ```sh
 cub server key admin           # the local administrator's keypair
