@@ -1,0 +1,136 @@
+ConfigHub Evaluation License Agreement
+
+Version 0.1 — 2026-07-20
+
+This Evaluation License Agreement ("Agreement") is a legal agreement between you,
+either an individual or a single entity ("Licensee", "you"), and
+ConfigHub, Inc. ("ConfigHub", "we", "us") governing your use of the ConfigHub
+server software distributed as a container image and any accompanying
+documentation (collectively, the "Software").
+
+BY PULLING, INSTALLING, OR USING THE SOFTWARE, YOU AGREE TO BE BOUND BY THIS
+AGREEMENT. IF YOU DO NOT AGREE, DO NOT PULL, INSTALL, OR USE THE SOFTWARE.
+
+1. Status of the Software
+
+The Software is pre-release, alpha-quality software provided for evaluation and
+collaboration with design partners. It is not intended or supported for
+production use. Features, interfaces, and data formats may change or be removed
+without notice, and the Software may contain defects.
+
+2. Eligibility and License Grant
+
+The Software is made available solely to ConfigHub's design partners. Your
+license to the Software is conditioned on your having a current, executed
+non-disclosure or evaluation agreement with ConfigHub (an "NDA"). If you do not
+have a current NDA with ConfigHub, ConfigHub grants you no license to the
+Software, and you must not pull, install, or use it. Making the Software publicly
+accessible for ease of distribution does not grant a license to anyone who lacks
+a current NDA.
+
+Subject to your compliance with this Agreement and your NDA, ConfigHub grants you
+a limited, non-exclusive, non-transferable, non-sublicensable, royalty-free, and
+revocable license to pull, install, and run the Software solely for your internal
+evaluation and for collaboration with ConfigHub during the Term.
+
+This is a license to use the Software in object/container form only. It is not a
+sale, and it conveys no ownership. The Software is made publicly available for
+ease of distribution; making it publicly accessible does not make it open-source
+software and grants no rights beyond those stated in this Agreement.
+
+3. Restrictions
+
+You will not, and will not permit any third party to:
+
+a. redistribute, sublicense, sell, rent, lease, host as a service, or otherwise
+   make the Software available to any third party;
+b. reverse engineer, decompile, or disassemble the Software, or attempt to
+   derive its source code, except to the extent this restriction is prohibited
+   by applicable law;
+c. modify, translate, or create derivative works of the Software;
+d. remove, alter, or obscure any proprietary notices, labels, or marks;
+e. use the Software to develop or assist in developing a product or service that
+   competes with ConfigHub;
+f. use the Software in any production, safety-critical, or revenue-generating
+   environment, or to process data you cannot afford to lose; or
+g. publicly disclose benchmark, performance results, or any other details about
+   the Software without ConfigHub's prior written consent.
+
+4. Ownership
+
+ConfigHub and its licensors retain all right, title, and interest in and to the
+Software, including all intellectual property rights. All rights not expressly
+granted in this Agreement are reserved.
+
+5. Confidentiality
+
+The Software is pre-release and constitutes ConfigHub's confidential information.
+You will protect it using at least the same care you use for your own
+confidential information of like importance, and will not disclose any non-public
+characteristics of the Software (including defects, designs, and undocumented
+behavior) without ConfigHub's prior written consent.
+
+Your NDA with ConfigHub governs the treatment of ConfigHub's confidential
+information. This section is in addition to, and does not limit, your obligations
+under that NDA; in the event of a conflict between this section and your NDA, the
+NDA controls.
+
+6. Feedback
+
+If you provide ConfigHub with suggestions, evaluations, or other feedback, you
+grant ConfigHub a perpetual, irrevocable, worldwide, royalty-free license to use
+and incorporate that feedback for any purpose without obligation to you.
+
+7. Third-Party Components
+
+The Software includes third-party open-source components licensed under their own
+terms. Those terms govern your use of those components and, to the extent of any
+conflict with this Agreement, control with respect to those components. The
+notices and license texts for these components are included in the container
+image: /srv/app/THIRD_PARTY_LICENSES.txt for the server's Go modules,
+/srv/app/UI_THIRD_PARTY_LICENSES.txt for the npm packages bundled into the
+embedded web UI, and /srv/app/OS_LICENSE_NOTICE.txt for the operating-system
+packages in the base image, including a written offer for the corresponding
+source of GPL-licensed components.
+
+8. No Warranty
+
+THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY OF ANY
+KIND, WHETHER EXPRESS, IMPLIED, OR STATUTORY, INCLUDING WITHOUT LIMITATION ANY
+WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND
+NON-INFRINGEMENT. CONFIGHUB DOES NOT WARRANT THAT THE SOFTWARE WILL BE
+UNINTERRUPTED, ERROR-FREE, OR SECURE.
+
+9. Limitation of Liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, CONFIGHUB WILL NOT BE LIABLE FOR ANY
+INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR EXEMPLARY DAMAGES, OR FOR ANY
+LOSS OF PROFITS, REVENUE, DATA, OR GOODWILL, ARISING OUT OF OR RELATED TO THIS
+AGREEMENT OR THE SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY. CONFIGHUB'S TOTAL
+AGGREGATE LIABILITY UNDER THIS AGREEMENT WILL NOT EXCEED USD $100. BECAUSE THE
+SOFTWARE IS PROVIDED AT NO CHARGE FOR EVALUATION, THESE LIMITATIONS ARE A
+FUNDAMENTAL BASIS OF THE BARGAIN.
+
+10. Term and Termination
+
+This Agreement begins when you first pull or use the Software and continues until
+terminated (the "Term"). ConfigHub may terminate this Agreement or your license
+at any time. The Agreement terminates automatically if you breach it, and
+automatically upon the expiration or termination of your NDA with ConfigHub. Upon
+termination, you must stop using and delete all copies of the Software. Sections
+3 through 9 and 11 survive termination.
+
+11. General
+
+This Agreement is governed by the laws of the state of Delaware, USA, without 
+regard to conflict-of-laws rules. The state and federal courts located in the 
+State of Delaware have exclusive jurisdiction and venue over any dispute arising 
+out of or relating to this Agreement or the Software, and each party consents to 
+the personal jurisdiction of those courts. If any provision is held unenforceable,
+the remaining provisions remain in effect. This Agreement, together with your NDA, 
+is the entire agreement between the parties regarding the Software and supersedes 
+prior understandings. A separate signed commercial, non-disclosure, or evaluation
+agreement between you and ConfigHub controls over this Agreement to the extent of
+any conflict.
+
+Contact: legal@confighub.com
