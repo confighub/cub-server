@@ -1,10 +1,9 @@
 # ConfigHub self-hosted server installation plugin
 
-> [!IMPORTANT]
-> **You probably don't need this.** To try ConfigHub, sign up at
-> [auth.confighub.com/sign-up](https://auth.confighub.com/sign-up) and follow the
-> [tutorial](https://docs.confighub.com/get-started/tutorial/setup/). Nothing in this
-> repository is required.
+> [!IMPORTANT] **You probably don't need this.** To try ConfigHub, [sign
+> up](https://auth.confighub.com/sign-up) for hub.confighub.com and follow the
+> [tutorial](https://docs.confighub.com/get-started/tutorial/setup/). Nothing in this repository
+> is required.
 >
 > This plugin installs a **self-hosted** ConfigHub server. It is for prospects, customers
 > and design partners with an existing ConfigHub engagement who are evaluating self-hosting.
