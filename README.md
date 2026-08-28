@@ -34,8 +34,10 @@ somebody with admin, and no password anywhere. What the instance stores is a pub
 
 ## Prerequisites
 
-- **Docker**, running. That is all, for the default path.
-- **kind** and **kubectl** on your PATH.
+- **Docker**, running.
+- **kubectl** on your PATH.
+
+The cluster is created through kind's Go API, so the `kind` binary is not needed.
 
 Installing into a cluster you already have needs only `kubectl` and a kubeconfig.
 

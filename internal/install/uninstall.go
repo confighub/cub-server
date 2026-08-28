@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 // Uninstall removes what Run created.
@@ -22,10 +23,7 @@ func Uninstall(ctx context.Context, u UI, o *Options, keepConfig bool) error {
 
 	switch o.Target {
 	case TargetKind:
-		if err := toolKind.require(); err != nil {
-			return err
-		}
-		exists, err := kindClusterExists(ctx, o.ClusterName)
+		exists, err := kindClusterExists(o.ClusterName)
 		if err != nil {
 			return err
 		}
@@ -34,7 +32,8 @@ func Uninstall(ctx context.Context, u UI, o *Options, keepConfig bool) error {
 			break
 		}
 		u.step("Deleting the cluster %q", o.ClusterName)
-		if err := deleteKindCluster(ctx, o.ClusterName); err != nil {
+		kubeconfig := filepath.Join(o.OutDir, "kubeconfig")
+		if err := deleteKindCluster(o.ClusterName, kubeconfig); err != nil {
 			return err
 		}
 

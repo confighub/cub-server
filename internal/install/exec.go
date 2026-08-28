@@ -8,14 +8,16 @@ import (
 	"strings"
 )
 
-// Shelling out to kind and kubectl rather than importing their libraries.
+// Shelling out to kubectl rather than importing client-go.
 //
-// Both have Go APIs, and using them would remove kubectl as a prerequisite and
-// make failures structured rather than parsed. That is the right end state and
-// is recorded as such; it is not the right first move, because it front-loads
-// a large dependency decision before anything has been observed working end to
-// end. The boundary is kept narrow -- every invocation goes through here -- so
-// replacing it later is a change to this file rather than a change everywhere.
+// The cluster is created through kind's Go API (see kind.go), so Docker and
+// kubectl are the only things that have to be installed. Replacing kubectl too
+// would leave Docker alone, and is the same trade at a larger size: applying
+// manifests and waiting on rollouts both have to be reimplemented, and kubectl
+// already knows what "available" means for each workload kind.
+//
+// The boundary is kept narrow -- every invocation goes through here -- so making
+// that change later is a change to this file rather than a change everywhere.
 
 // tool is an external command this installer depends on.
 type tool struct {
@@ -25,7 +27,6 @@ type tool struct {
 }
 
 var (
-	toolKind    = tool{name: "kind", install: "https://kind.sigs.k8s.io/docs/user/quick-start/#installation"}
 	toolKubectl = tool{name: "kubectl", install: "https://kubernetes.io/docs/tasks/tools/"}
 	toolDocker  = tool{name: "docker", install: "https://docs.docker.com/get-started/get-docker/"}
 )

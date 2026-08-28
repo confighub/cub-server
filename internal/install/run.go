@@ -76,11 +76,6 @@ func preflight(ctx context.Context, u UI, o *Options) error {
 			return fmt.Errorf("Docker is installed but not responding. Start Docker and try again")
 		}
 		u.detail("docker: running")
-
-		if err := toolKind.require(); err != nil {
-			return err
-		}
-		u.detail("kind: found")
 	}
 
 	if err := toolKubectl.require(); err != nil {
@@ -309,7 +304,7 @@ func provisionCluster(ctx context.Context, u UI, o *Options) (kubeEnv, error) {
 	}
 
 	u.step("Preparing the cluster")
-	kubeconfig, err := createKindCluster(ctx, u, o)
+	kubeconfig, err := createKindCluster(u, o)
 	if err != nil {
 		return kubeEnv{}, err
 	}
