@@ -1,6 +1,7 @@
 # ConfigHub self-hosted server installation plugin
 
-> [!IMPORTANT] **You probably don't need this.** To try ConfigHub, [sign
+> [!IMPORTANT] 
+> **You probably don't need this.** To try ConfigHub, [sign
 > up](https://auth.confighub.com/sign-up) for hub.confighub.com and follow the
 > [tutorial](https://docs.confighub.com/get-started/tutorial/setup/). Nothing in this repository
 > is required.
