@@ -19,12 +19,6 @@ This plugin lets you install a self-hosted instance of ConfigHub. You must agree
 - **Docker**, running.
 - **kubectl** on your PATH.
 
-The cluster is created through kind's Go API, so the `kind` binary is not needed.
-
-Installing into a cluster you already have needs only `kubectl` and a kubeconfig.
-
-The ConfigHub server image is public on ghcr.io, so no registry credentials are needed.
-
 ## Install
 
 The simplest usage:
