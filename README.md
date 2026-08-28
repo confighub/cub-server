@@ -1,6 +1,14 @@
 # ConfigHub self-hosted server installation plugin
 
-This plugin is intended for ConfigHub prospects, customers and design partners who have an existing engagement with ConfigHub and who are evaluating a self-hosted model. You do NOT need anything here to try out ConfigHub. Simply sign up at https://auth.confighub.com/sign-up and go get started at https://docs.confighub.com/get-started/tutorial/setup/.
+> [!IMPORTANT]
+> **You probably don't need this.** To try ConfigHub, sign up at
+> [auth.confighub.com/sign-up](https://auth.confighub.com/sign-up) and follow the
+> [tutorial](https://docs.confighub.com/get-started/tutorial/setup/). Nothing in this
+> repository is required.
+>
+> This plugin installs a **self-hosted** ConfigHub server. It is for prospects, customers
+> and design partners with an existing ConfigHub engagement who are evaluating self-hosting.
+> Use is conditioned on the [evaluation license](EVALUATION-LICENSE.txt).
 
 ## License requirements
 
