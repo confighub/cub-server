@@ -98,3 +98,41 @@ func jsonEqual(t *testing.T, a, b string) bool {
 	}
 	return true
 }
+
+// cub passes the caller's context, server, token and space to a plugin through
+// the environment. They describe the instance the operator was already talking
+// to, not the one being installed, and CUB_CONTEXT is an override -- a cub run
+// with it set ignores the current context entirely.
+//
+// Left in, a login that correctly created a new context is followed by a call
+// that addresses the old one, against a server that cannot verify its token.
+func TestCubEnvDropsTheCallersPosition(t *testing.T) {
+	t.Setenv("CUB_CONTEXT", "somewhere-else")
+	t.Setenv("CUB_TOKEN", "a-token-for-another-instance")
+	t.Setenv("CUB_SERVER", "https://hub.example.com")
+	t.Setenv("CUB_SPACE", "their-space")
+	t.Setenv("CUB_CONFIG", "/tmp/some-config")
+	t.Setenv("PATH", os.Getenv("PATH"))
+
+	seen := map[string]string{}
+	for _, kv := range cubEnv() {
+		if name, value, ok := strings.Cut(kv, "="); ok {
+			seen[name] = value
+		}
+	}
+
+	for _, name := range []string{"CUB_CONTEXT", "CUB_TOKEN", "CUB_SERVER", "CUB_SPACE"} {
+		if v, present := seen[name]; present {
+			t.Errorf("%s=%q was passed through; it addresses the caller's instance, not this one", name, v)
+		}
+	}
+
+	// CUB_CONFIG names the store rather than a position in it, and the child has
+	// to read and write the same one.
+	if seen["CUB_CONFIG"] != "/tmp/some-config" {
+		t.Errorf("CUB_CONFIG = %q, want it preserved", seen["CUB_CONFIG"])
+	}
+	if seen["PATH"] == "" {
+		t.Error("PATH was dropped; the child could not find anything")
+	}
+}

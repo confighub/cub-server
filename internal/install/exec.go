@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -38,6 +39,53 @@ func (t tool) require() error {
 		return fmt.Errorf("%s is not on your PATH.\n    Install it from %s", t.name, t.install)
 	}
 	return nil
+}
+
+// cubEnv is the environment a `cub` invocation runs in.
+//
+// cub tells a plugin which context, server, token and space the *caller* was
+// using, by putting them in the plugin's environment. Those describe the
+// instance the operator was already talking to, which is not the one being
+// installed, and CUB_CONTEXT in particular is an override: a `cub` run with it
+// set ignores the current context entirely.
+//
+// So a login that correctly created a new context was followed by a call that
+// went to the old one, against a server that could not verify its token. Left
+// in, they make every cub command here address the wrong instance.
+//
+// CUB_CONFIG is deliberately kept. It names the configuration store rather than
+// a position within it, and the child has to read and write the same one.
+func cubEnv() []string {
+	drop := map[string]bool{
+		"CUB_CONTEXT": true,
+		"CUB_TOKEN":   true,
+		"CUB_SERVER":  true,
+		"CUB_SPACE":   true,
+	}
+	env := os.Environ()
+	out := env[:0:0]
+	for _, kv := range env {
+		if name, _, ok := strings.Cut(kv, "="); ok && drop[name] {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
+// runCub executes a cub command, with the caller's own context stripped out.
+func runCub(ctx context.Context, cub string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, cub, args...)
+	cmd.Env = cubEnv()
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	err := cmd.Run()
+	out := buf.String()
+	if err != nil {
+		return out, fmt.Errorf("%s %s: %w\n%s", cub, strings.Join(args, " "), err, strings.TrimSpace(out))
+	}
+	return out, nil
 }
 
 // run executes a command, returning its combined output. The output is folded

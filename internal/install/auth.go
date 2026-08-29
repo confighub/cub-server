@@ -101,7 +101,7 @@ func activeContextName() string {
 func login(ctx context.Context, cub, serverURL, keyName string) error {
 	// Attached form: cub requires --private-key=value, and rejects the detached
 	// spelling rather than consuming the next argument.
-	_, err := run(ctx, cub, "auth", "login",
+	_, err := runCub(ctx, cub, "auth", "login",
 		"--new-context",
 		"--private-key="+keyName,
 		"--server="+serverURL,
@@ -112,7 +112,7 @@ func login(ctx context.Context, cub, serverURL, keyName string) error {
 // verify makes one authenticated call, so that "installed" means "answered a
 // real request" rather than "the pod is running".
 func verify(ctx context.Context, cub string) error {
-	_, err := run(ctx, cub, "space", "list")
+	_, err := runCub(ctx, cub, "space", "list")
 	return err
 }
 
