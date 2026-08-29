@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strconv"
 )
 
 // Surface is everything the server reads, resolved for one instance.
@@ -111,6 +112,26 @@ func Build(opts Options, prior Preserved) (*Surface, error) {
 		Name: AdminJWKEnv, Placement: InConfigMap, Value: adminJWK,
 		Doc: "Public key of the bootstrap administrator. Not secret: the private half never reaches the cluster.",
 	})
+
+	// Where clients pull images from, when that is not where the registry binds.
+	//
+	// /api/info advertises the registry so that tools configured from it -- Argo
+	// CD among them -- know where to pull. The server derives the port from the
+	// scheme when nothing says otherwise, which gives 9092: correct for the
+	// container port, wrong for anyone outside the cluster, who reaches it on the
+	// NodePort. The two only coincide when the registry is reached directly.
+	//
+	// The host needs no override here. The server keeps the host the request
+	// arrived on for an IP or localhost, rather than prefixing "oci.", because
+	// there is nothing for that prefix to resolve against -- which is exactly
+	// this deployment.
+	if opts.OCINodePort != 0 {
+		add(Var{
+			Name: "OCI_EXTERNAL_PORT", Placement: InConfigMap,
+			Value: strconv.Itoa(opts.OCINodePort),
+			Doc:   "Port clients pull images from. The NodePort, not the port the registry binds.",
+		})
+	}
 
 	// --- Secret -----------------------------------------------------------
 
