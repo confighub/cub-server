@@ -89,10 +89,20 @@ func activeContextName() string {
 
 // login exchanges the administrator's key for a session, leaving the caller able
 // to run cub commands immediately.
+//
+// --new-context, because an install produces a new instance and must not adopt
+// whichever context happens to be current. Without it, `cub auth login` writes
+// into the active context when that context is not itself authenticated, which
+// silently repoints a context the operator uses for something else at the
+// instance just installed.
+//
+// The cost is that reinstalling the same instance leaves an extra context
+// behind. That is untidy where the alternative is destructive.
 func login(ctx context.Context, cub, serverURL, keyName string) error {
 	// Attached form: cub requires --private-key=value, and rejects the detached
 	// spelling rather than consuming the next argument.
 	_, err := run(ctx, cub, "auth", "login",
+		"--new-context",
 		"--private-key="+keyName,
 		"--server="+serverURL,
 	)
