@@ -14,6 +14,8 @@
 
 This plugin lets you install a self-hosted instance of ConfigHub. You must agree to and meet the requirements of the [EVALUATION LICENSE](EVALUATION-LICENSE.txt), before moving forward.
 
+**NOTE:** The code in this repo is covered by the MIT [LICENSE](LICENSE). The evaluation license is only for the Confighub Server.
+
 ## Prerequisites
 
 - **Docker**, running.
