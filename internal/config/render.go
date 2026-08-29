@@ -113,7 +113,6 @@ func renderDeployment(opts Options, configHash string) ([]byte, error) {
 	edits = append(edits,
 		edit{doc: 0, path: "spec.template.metadata.annotations." + segment(configHashAnnotation), value: configHash},
 		edit{doc: 0, path: "spec.template.spec.initContainers.0.image", value: opts.Image},
-		edit{doc: 0, path: "spec.template.spec.initContainers.1.image", value: opts.Image},
 		edit{doc: 0, path: "spec.template.spec.containers.0.image", value: opts.Image},
 	)
 	if err := apply(docs, edits); err != nil {

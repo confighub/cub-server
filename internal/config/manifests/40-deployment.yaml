@@ -25,34 +25,17 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       initContainers:
-      - name: confighub-db-init
-        image: ghcr.io/confighubai/confighub:latest
-        command:
-        - /srv/app/confighub
-        args:
-        - db
-        - init
-        envFrom:
-        - configMapRef:
-            name: confighub-env
-        - secretRef:
-            name: confighub-secret-env
-        securityContext:
-          readOnlyRootFilesystem: true
-          runAsNonRoot: true
-          allowPrivilegeEscalation: false
-          privileged: false
-        resources:
-          requests:
-            cpu: 128m
-            memory: 128Mi
+      # init-and-migrate does both jobs in one pass: it creates the migration
+      # tables if they are not there, then migrates. Two containers running
+      # `db init` and `db migrate` in sequence did the same thing and paid for
+      # a second image start to do it.
       - name: confighub-db-migrate
         image: ghcr.io/confighubai/confighub:latest
         command:
         - /srv/app/confighub
         args:
         - db
-        - migrate
+        - init-and-migrate
         envFrom:
         - configMapRef:
             name: confighub-env
