@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 
 	"github.com/confighub/sdk/core/cubapi"
 )
@@ -22,31 +21,14 @@ import (
 // here would be a second implementation of the thing most worth having only one
 // of.
 
-// CubStore opens cub's own configuration, from wherever this process is being
-// run from.
+// CubStore opens cub's own configuration.
 //
-// CUB_CONFIG does not mean the same thing to everyone, which is the trap this
-// exists to avoid. cubapi reads it as the path of the config *file*
-// (cubapi.DefaultConfigPath). But cub, when it execs a plugin, sets it to the
-// config *directory* -- `CUB_CONFIG=%s` over `filepath.Dir(ConfigPath())` in
-// cub's pluginEnv. So a plugin that calls cubapi.LoadConfig("") is handed a
-// directory where a file is expected.
-//
-// It fails loudly on the read ("is a directory"), but the quieter half is worse:
-// the key directory is a sibling of the config file, so a directory taken for a
-// file would put keys in ~/keys rather than ~/.confighub/keys.
-//
-// Accepting both spellings here rather than picking one: cub-server has to work
-// with the cub that is installed, and both readings are live.
+// CUB_CONFIG names the config directory, which is what cub sets when it execs a
+// plugin and what cubapi resolves from. Passing an empty path defers to that,
+// so there is one definition of where the configuration lives rather than a
+// second one here.
 func CubStore() (*cubapi.Store, error) {
-	path := os.Getenv("CUB_CONFIG")
-	if path == "" {
-		return cubapi.LoadConfig("")
-	}
-	if info, err := os.Stat(path); err == nil && info.IsDir() {
-		path = filepath.Join(path, cubapi.ConfigFileName)
-	}
-	return cubapi.LoadConfig(path)
+	return cubapi.LoadConfig("")
 }
 
 // writeAdminKey stores the generated private key under cub's key directory and

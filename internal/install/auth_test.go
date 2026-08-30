@@ -7,41 +7,47 @@ import (
 	"testing"
 )
 
-// CUB_CONFIG is read as a config *file* by cubapi, and set to the config
-// *directory* by cub when it execs a plugin. A plugin therefore sees the second
-// and has to cope with the first.
+// CUB_CONFIG names the config directory. That is what cub sets when it execs a
+// plugin, what the docs say, and since confighub#5224 what cubapi resolves from.
 //
 // The directory form is the one to test with. cub's pluginEnv appends its own
 // CUB_CONFIG after os.Environ(), so a test that exports the file form shadows
 // it and never exercises the case that actually reaches a plugin.
-func TestCubStoreAcceptsBothSpellingsOfCubConfig(t *testing.T) {
+func TestCubStoreResolvesTheConfigDirectory(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")
 	if err := os.WriteFile(configPath, []byte("apiVersion: v1\nkind: Config\ncontexts: []\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("CUB_CONFIG", dir)
 
-	t.Run("directory, as cub sets it for a plugin", func(t *testing.T) {
-		t.Setenv("CUB_CONFIG", dir)
-		store, err := CubStore()
-		if err != nil {
-			t.Fatalf("a directory should be accepted: %v", err)
-		}
-		if store.ConfigPath() != configPath {
-			t.Errorf("ConfigPath = %q, want %q", store.ConfigPath(), configPath)
-		}
-	})
+	store, err := CubStore()
+	if err != nil {
+		t.Fatalf("a directory should be accepted: %v", err)
+	}
+	if store.ConfigPath() != configPath {
+		t.Errorf("ConfigPath = %q, want %q", store.ConfigPath(), configPath)
+	}
+}
 
-	t.Run("file, as cubapi documents it", func(t *testing.T) {
-		t.Setenv("CUB_CONFIG", configPath)
-		store, err := CubStore()
-		if err != nil {
-			t.Fatalf("a file path should be accepted: %v", err)
-		}
-		if store.ConfigPath() != configPath {
-			t.Errorf("ConfigPath = %q, want %q", store.ConfigPath(), configPath)
-		}
-	})
+// The file form used to work and no longer does. It should fail as the mistake
+// it is, naming the directory to use, rather than surfacing later as a confusing
+// read error deeper in.
+func TestCubStoreRejectsTheFileForm(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("apiVersion: v1\nkind: Config\ncontexts: []\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CUB_CONFIG", configPath)
+
+	_, err := CubStore()
+	if err == nil {
+		t.Fatal("CUB_CONFIG naming a file should be refused")
+	}
+	if !strings.Contains(err.Error(), dir) {
+		t.Errorf("the error should name the directory to use instead, got: %v", err)
+	}
 }
 
 // The louder failure was the read error. The quieter one was where keys would
