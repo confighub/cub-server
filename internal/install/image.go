@@ -1,12 +1,13 @@
 package install
 
-// DefaultImageVersion is the ConfigHub server version installed when none is
-// named.
+// DefaultImageVersion is the server version used when the registry cannot be
+// asked which is newest.
 //
-// Pinned rather than "latest": an installer that resolves a moving tag gives two
-// people running the same command on the same day two different instances, and
-// makes "what did I install" unanswerable after the fact. Bumped deliberately,
-// as part of releasing cub-server.
+// Not the version an install normally gets: that is resolved from the registry
+// at install time, so this plugin does not have to be re-released every time the
+// server is (see imageresolve.go). This is the offline answer, and the only cost
+// of being out of date here is a slightly older server for someone installing
+// without a network.
 //
 // Overridable at build time with -ldflags "-X ...install.DefaultImageVersion=v1.2.3".
 var DefaultImageVersion = "v0.4.20"

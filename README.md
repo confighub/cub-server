@@ -56,6 +56,22 @@ The API is published on a real host port rather than through `kubectl port-forwa
 keeps working after you close the terminal. That is why the NodePorts are fixed defaults: kind
 has to publish them when the node container is created, before there is a cluster to ask.
 
+## Which server version
+
+`cub server install` asks the registry for the newest released ConfigHub version and installs
+that, so this plugin does not have to be re-released every time the server is.
+
+The version it resolved is written into the generated manifests, not a floating tag — so what is
+running is answerable, and two people installing at the same moment get the same thing.
+
+```sh
+cub server install --image ghcr.io/confighubai/confighub:v0.4.20   # pick one
+```
+
+Re-running an install keeps the version the instance is already on; it resumes rather than
+upgrading. Pass `--image` to move it. With no network, the install falls back to the version the
+plugin was built with rather than failing.
+
 ## Targets
 
 ```sh

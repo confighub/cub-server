@@ -146,7 +146,7 @@ func TestReadPriorRoundTripsGeneratedValues(t *testing.T) {
 		}
 	}
 
-	prior, adminJWK, err := readPrior(dir)
+	prior, adminJWK, _, err := readPrior(dir)
 	if err != nil {
 		t.Fatalf("readPrior: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestReadPriorRoundTripsGeneratedValues(t *testing.T) {
 
 // A first run has nothing to read back, and that is not an error.
 func TestReadPriorOnAnEmptyDirectory(t *testing.T) {
-	prior, adminJWK, err := readPrior(t.TempDir())
+	prior, adminJWK, _, err := readPrior(t.TempDir())
 	if err != nil {
 		t.Fatalf("a first run should not error: %v", err)
 	}

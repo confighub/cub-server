@@ -98,8 +98,12 @@ func preflight(ctx context.Context, u UI, o *Options) error {
 func generate(u UI, o *Options) ([]config.File, string, error) {
 	u.step("Generating configuration")
 
-	prior, priorAdminJWK, err := readPrior(o.OutDir)
+	prior, priorAdminJWK, priorImage, err := readPrior(o.OutDir)
 	if err != nil {
+		return nil, "", err
+	}
+
+	if err := resolveImage(u, o, priorImage); err != nil {
 		return nil, "", err
 	}
 
@@ -261,7 +265,7 @@ func outDirFlag(o *Options) string {
 // thing to lose, and these values are already sitting in the Secret in a form
 // meant to be read. A missing or unparseable previous run is not an error:
 // generating fresh is correct for a first run.
-func readPrior(outDir string) (config.Preserved, string, error) {
+func readPrior(outDir string) (config.Preserved, string, string, error) {
 	prior := config.Preserved{}
 
 	secretPath := filepath.Join(outDir, config.SecretsDir, "confighub-secret.yaml")
@@ -275,7 +279,7 @@ func readPrior(outDir string) (config.Preserved, string, error) {
 			}
 		}
 	} else if !os.IsNotExist(err) {
-		return nil, "", err
+		return nil, "", "", err
 	}
 
 	var adminJWK string
@@ -288,10 +292,34 @@ func readPrior(outDir string) (config.Preserved, string, error) {
 			adminJWK = doc.Data[config.AdminJWKEnv]
 		}
 	} else if !os.IsNotExist(err) {
-		return nil, "", err
+		return nil, "", "", err
 	}
 
-	return prior, adminJWK, nil
+	// The image this instance is already on. Recovered so that re-running an
+	// install does not quietly move it to whatever is newest -- a re-run
+	// resumes, it does not deploy.
+	var image string
+	depPath := filepath.Join(outDir, config.ConfigDir, "40-deployment.yaml")
+	if data, err := os.ReadFile(depPath); err == nil {
+		var doc struct {
+			Spec struct {
+				Template struct {
+					Spec struct {
+						Containers []struct {
+							Image string `yaml:"image"`
+						} `yaml:"containers"`
+					} `yaml:"spec"`
+				} `yaml:"template"`
+			} `yaml:"spec"`
+		}
+		if yaml.Unmarshal(data, &doc) == nil && len(doc.Spec.Template.Spec.Containers) > 0 {
+			image = doc.Spec.Template.Spec.Containers[0].Image
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, "", "", err
+	}
+
+	return prior, adminJWK, image, nil
 }
 
 // provisionCluster returns the kube environment to install into, creating a kind
