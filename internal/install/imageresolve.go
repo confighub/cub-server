@@ -164,9 +164,11 @@ func pullToken(ctx context.Context, registry, repo string) (string, error) {
 //     resumes it; it does not upgrade the server underneath someone who only
 //     wanted to re-apply their configuration.
 //  3. Otherwise the newest released version, resolved from the registry now.
-//  4. And if the registry cannot be reached, the version this plugin was built
-//     with. Losing the network should cost an evaluator a slightly older server,
-//     not the install.
+//
+// There is no fourth case. A version carried in this plugin as a fallback would
+// have to be maintained, which is the treadmill resolution exists to remove, and
+// it would install something nobody chose. Naming an image is already how you
+// install without asking the registry.
 func resolveImage(u UI, o *Options, priorImage string) error {
 	switch {
 	case o.Image != "":
@@ -184,10 +186,8 @@ func resolveImage(u UI, o *Options, priorImage string) error {
 
 	latest, err := resolveLatestImage(ctx)
 	if err != nil {
-		o.Image = defaultImage()
-		u.warn("could not ask the registry for the newest version: %v", err)
-		u.warn("falling back to %s, which this plugin was built with", o.Image)
-		return nil
+		return fmt.Errorf("could not ask the registry which ConfigHub version is newest: %w\n"+
+			"    Name one instead: cub server install --image %s:<version>", err, DefaultImageRepo)
 	}
 	o.Image = latest
 	return nil

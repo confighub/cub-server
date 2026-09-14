@@ -2,6 +2,7 @@ package install
 
 import (
 	"io"
+	"strings"
 	"testing"
 )
 
@@ -73,6 +74,25 @@ func TestResolveImageDoesNotUpgradeOnAReRun(t *testing.T) {
 	}
 	if o.Image != "ghcr.io/confighubai/confighub:v0.4.2" {
 		t.Errorf("a re-run changed the image to %q", o.Image)
+	}
+}
+
+// With no network and no --image there is nothing to install, and saying so is
+// better than installing a version nobody chose.
+func TestResolveImageFailsRatherThanGuessing(t *testing.T) {
+	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:9")
+	t.Setenv("HTTP_PROXY", "http://127.0.0.1:9")
+
+	o := &Options{}
+	err := resolveImage(discardUI(), o, "")
+	if err == nil {
+		t.Fatal("expected the install to stop; there is no version to install")
+	}
+	if !strings.Contains(err.Error(), "--image") {
+		t.Errorf("the error should name the way out, got: %v", err)
+	}
+	if o.Image != "" {
+		t.Errorf("no image should have been chosen, got %q", o.Image)
 	}
 }
 

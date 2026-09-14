@@ -69,8 +69,8 @@ cub server install --image ghcr.io/confighubai/confighub:v0.4.20   # pick one
 ```
 
 Re-running an install keeps the version the instance is already on; it resumes rather than
-upgrading. Pass `--image` to move it. With no network, the install falls back to the version the
-plugin was built with rather than failing.
+upgrading. Pass `--image` to move it, which is also how you install without reaching the
+registry at all.
 
 ## Targets
 

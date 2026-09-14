@@ -109,12 +109,9 @@ type Options struct {
 // a self-hosted instance to look at it. Self-contained database, no ingress, no
 // node selector -- nothing that assumes anything about the cluster beyond it
 // being a cluster.
-func (o *Options) Defaults(imageDefault string) {
+func (o *Options) Defaults() {
 	if o.Namespace == "" {
 		o.Namespace = "confighub"
-	}
-	if o.Image == "" {
-		o.Image = imageDefault
 	}
 	if o.Database == "" {
 		o.Database = DatabaseInternal

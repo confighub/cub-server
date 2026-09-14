@@ -187,7 +187,7 @@ func (o *Options) deploymentOptions() config.Options {
 		APINodePort: o.APINodePort,
 		OCINodePort: o.OCINodePort,
 	}
-	opts.Defaults(defaultImage())
+	opts.Defaults()
 	return opts
 }
 

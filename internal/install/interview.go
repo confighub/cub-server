@@ -128,12 +128,18 @@ func Interview(in io.Reader, out io.Writer, o *Options) error {
 		}
 	}
 
+	// Offered, not demanded. The default is whatever the registry says is
+	// newest, which is not known yet and is what almost everyone wants; taking
+	// it leaves Image empty so the install resolves it.
 	if o.Image == "" {
-		image, err := ask(r, out, "Server image", defaultImage())
+		const newest = "newest released"
+		image, err := ask(r, out, "Server image", newest)
 		if err != nil {
 			return err
 		}
-		o.Image = image
+		if image != newest {
+			o.Image = image
+		}
 	}
 
 	fmt.Fprintln(out)

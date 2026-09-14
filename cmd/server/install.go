@@ -64,7 +64,7 @@ func init() {
 	f.StringVar(&installOpts.KubeContext, "kube-context", "", "Kubeconfig context to install into, with --target=context")
 
 	f.StringVar(&installOpts.Namespace, "namespace", "", "Namespace to install into (default "+install.DefaultNamespace+")")
-	f.StringVar(&installOpts.Image, "image", "", "Server image, tag included (default "+install.DefaultImageRepo+":"+install.DefaultImageVersion+")")
+	f.StringVar(&installOpts.Image, "image", "", "Server image, tag included (default: the newest released version, resolved from the registry)")
 
 	f.StringVar(&installOpts.Database, "database", "", "internal (bundled Postgres) or external (default internal)")
 	f.StringVar(&installOpts.DatabaseURL, "database-url", "", "Connection string, with --database=external")
