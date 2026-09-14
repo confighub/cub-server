@@ -9,7 +9,7 @@ package install
 // as part of releasing cub-server.
 //
 // Overridable at build time with -ldflags "-X ...install.DefaultImageVersion=v1.2.3".
-var DefaultImageVersion = "v0.4.2"
+var DefaultImageVersion = "v0.4.20"
 
 // DefaultImageRepo is public on ghcr.io, so no registry credentials are needed
 // for an evaluation install. A mirror can be named with --image.

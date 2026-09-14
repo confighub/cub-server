@@ -29,7 +29,7 @@ spec:
       # tables if they are not there, then migrates. Two containers running
       # `db init` and `db migrate` in sequence did the same thing and paid for
       # a second image start to do it.
-      - name: confighub-db-migrate
+      - name: confighub-db-init-and-migrate
         image: ghcr.io/confighubai/confighub:latest
         command:
         - /srv/app/confighub
@@ -103,3 +103,17 @@ spec:
           runAsNonRoot: true
           allowPrivilegeEscalation: false
           privileged: false
+      # Spread replicas across nodes, best effort. Inert at one replica, which is
+      # what an install creates; it matters the moment anyone scales up.
+      #
+      # ScheduleAnyway makes this a preference, so scheduling can never fail
+      # because of it -- a placement choice should not be able to turn into an
+      # outage on a cluster too small or too constrained to satisfy it. Matches
+      # the base-confighub-app deployment, which chose the same.
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: confighub
