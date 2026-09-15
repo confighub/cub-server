@@ -109,19 +109,13 @@ func (o *Options) Defaults() error {
 	if o.Database == "" {
 		o.Database = string(config.DatabaseInternal)
 	}
-	if o.APINodePort == 0 {
-		o.APINodePort = DefaultAPINodePort
-	}
-	if o.OCINodePort == 0 {
-		o.OCINodePort = DefaultOCINodePort
-	}
-	if o.KeycloakNodePort == 0 {
-		o.KeycloakNodePort = DefaultKeycloakNodePort
-	}
-	// Keycloak's addresses are deliberately not defaulted here. They are derived
-	// from ports this instance already published, and those are read back off
-	// the previous render rather than assumed -- see keycloakAddresses, which
-	// runs once that has happened.
+	// Ports are deliberately left at zero here, which is how resolvePorts tells
+	// "the caller did not choose" from "the caller chose this". It runs after
+	// OutDir is known, because an instance that already exists has ports of its
+	// own and they outrank any default.
+	//
+	// Keycloak's addresses are likewise not defaulted here; keycloakAddresses
+	// derives them once the ports are settled.
 	if o.AdminKeyName == "" {
 		o.AdminKeyName = DefaultAdminKeyName
 	}

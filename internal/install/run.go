@@ -24,6 +24,9 @@ func Run(ctx context.Context, u UI, o *Options) error {
 	if err := o.Defaults(); err != nil {
 		return err
 	}
+	if err := o.resolvePorts(); err != nil {
+		return err
+	}
 	if err := o.Validate(); err != nil {
 		return err
 	}

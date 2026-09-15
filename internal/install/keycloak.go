@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/confighub/cub-server/internal/config"
 )
 
@@ -47,7 +45,9 @@ func RunKeycloak(ctx context.Context, u UI, o *Options) error {
 	if err := requireInstalled(o); err != nil {
 		return err
 	}
-	if err := adoptPriorPorts(o); err != nil {
+	// The instance already exists, so resolvePorts reads its ports back rather
+	// than choosing any.
+	if err := o.resolvePorts(); err != nil {
 		return err
 	}
 	keycloakAddresses(o)
@@ -108,87 +108,6 @@ func RunKeycloak(ctx context.Context, u UI, o *Options) error {
 	return reportKeycloak(u, o)
 }
 
-// adoptPriorPorts takes the ports this instance is actually published on from
-// its previous render.
-//
-// Chapter two has no flags for them, so whatever Defaults put there is a guess,
-// and a wrong guess is silent: re-rendering the Services moves the instance to a
-// different NodePort while the cluster still publishes the old one, and builds
-// a redirect URI for an address nobody is listening on. The manifests are the
-// record of this install; this reads it rather than assuming it.
-func adoptPriorPorts(o *Options) error {
-	path := filepath.Join(o.OutDir, config.ConfigDir, "50-service.yaml")
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("reading the ports %s is published on: %w", o.OutDir, err)
-	}
-
-	// The API and the registry, in the order Render writes them.
-	var ports []int
-	for _, doc := range strings.Split(string(content), "\n---") {
-		var svc struct {
-			Spec struct {
-				Ports []struct {
-					NodePort int `yaml:"nodePort"`
-				} `yaml:"ports"`
-			} `yaml:"spec"`
-		}
-		if yaml.Unmarshal([]byte(doc), &svc) != nil || len(svc.Spec.Ports) == 0 {
-			continue
-		}
-		ports = append(ports, svc.Spec.Ports[0].NodePort)
-	}
-	if len(ports) < 2 {
-		return fmt.Errorf("could not read the ports from %s", path)
-	}
-
-	o.APINodePort, o.OCINodePort = ports[0], ports[1]
-	return nil
-}
-
-// reservedKeycloakPort is the host port this cluster was created publishing for
-// an identity provider.
-//
-// kind can only publish a port when it creates the node, so chapter one reserved
-// one and wrote the cluster definition next to the manifests. Choosing a
-// different port here would produce a Service nobody outside the cluster can
-// reach -- and silently, because everything inside it still works.
-//
-// The reserved port is whichever published port is not the API's or the
-// registry's, which are already known by the time this runs. Identifying it that
-// way rather than by position means a reordered cluster definition cannot point
-// this at the API.
-//
-// Falls back to the default for a cluster this install did not create, where
-// what is published is the operator's business.
-func reservedKeycloakPort(o *Options) int {
-	if o.Target != TargetKind {
-		return o.KeycloakNodePort
-	}
-
-	content, err := os.ReadFile(filepath.Join(o.OutDir, "kind-cluster.yaml"))
-	if err != nil {
-		return o.KeycloakNodePort
-	}
-	var cluster struct {
-		Nodes []struct {
-			ExtraPortMappings []struct {
-				HostPort int `yaml:"hostPort"`
-			} `yaml:"extraPortMappings"`
-		} `yaml:"nodes"`
-	}
-	if yaml.Unmarshal(content, &cluster) != nil || len(cluster.Nodes) == 0 {
-		return o.KeycloakNodePort
-	}
-
-	for _, mapping := range cluster.Nodes[0].ExtraPortMappings {
-		if mapping.HostPort != o.APINodePort && mapping.HostPort != o.OCINodePort {
-			return mapping.HostPort
-		}
-	}
-	return o.KeycloakNodePort
-}
-
 // keycloakAddresses derives the two URLs, now that the instance's own ports are
 // known.
 //
@@ -197,7 +116,7 @@ func reservedKeycloakPort(o *Options) int {
 // address people really use: it is the issuer in every token.
 func keycloakAddresses(o *Options) {
 	if o.Keycloak.NodePort == 0 {
-		o.Keycloak.NodePort = reservedKeycloakPort(o)
+		o.Keycloak.NodePort = o.KeycloakNodePort
 	}
 	if o.Keycloak.PublicURL == "" {
 		o.Keycloak.PublicURL = fmt.Sprintf("http://localhost:%d", o.Keycloak.NodePort)

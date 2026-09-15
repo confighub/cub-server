@@ -56,7 +56,7 @@ func RunIdP(ctx context.Context, u UI, in io.Reader, o *Options, idp *IdPOptions
 	// The ports this instance is really published on, not the defaults. Only the
 	// closing message uses them here, but a message that names an address nobody
 	// is listening on is worse than no message.
-	if err := adoptPriorPorts(o); err != nil {
+	if err := o.resolvePorts(); err != nil {
 		return err
 	}
 

@@ -54,8 +54,13 @@ Into a namespace (`confighub` by default):
 | Keycloak | not installed by default — see [Adding people](#adding-people) |
 
 The API is published on a real host port rather than through `kubectl port-forward`, so the URL
-keeps working after you close the terminal. That is why the NodePorts are fixed defaults: kind
-has to publish them when the node container is created, before there is a cluster to ask.
+keeps working after you close the terminal.
+
+Ports are chosen for you. kind has to publish them when the node container is created, before
+there is a cluster to ask, so an install picks free ones from the operating system rather than
+insisting on a default — a second instance, or anything else already holding the port, moves it
+along instead of failing. Re-running an install keeps the ports the instance already answers on;
+`--node-port`, `--oci-node-port` and `--keycloak-node-port` override both.
 
 ## Adding people
 

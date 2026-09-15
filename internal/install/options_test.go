@@ -23,8 +23,20 @@ func TestDefaultsFillEverythingNeededToInstall(t *testing.T) {
 	if o.OutDir == "" || !filepath.IsAbs(o.OutDir) {
 		t.Errorf("OutDir = %q, want an absolute path", o.OutDir)
 	}
-	if o.APIURL() != "http://localhost:32180" {
-		t.Errorf("APIURL = %q", o.APIURL())
+
+	// Ports are not part of Defaults: an instance that already exists has ports
+	// of its own, and one that does not needs ports nothing else holds. Both
+	// answers come from outside the process, so they are resolved separately and
+	// only once OutDir is known. See ports.go.
+	if o.APINodePort != 0 {
+		t.Errorf("Defaults set APINodePort to %d; resolvePorts owns that", o.APINodePort)
+	}
+	o.OutDir = t.TempDir()
+	if err := o.resolvePorts(); err != nil {
+		t.Fatalf("resolvePorts: %v", err)
+	}
+	if o.APIURL() == "http://localhost:0" {
+		t.Errorf("APIURL = %q, want a resolved port", o.APIURL())
 	}
 }
 
