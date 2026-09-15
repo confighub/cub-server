@@ -195,10 +195,18 @@ private key is left behind, even if it was generated as part of the install.
 `cub server install` generates several pieces of config automatically. These can also be generated piecemeal:
 
 ```sh
-cub server key admin           # the local administrator's keypair
-cub server key signing         # JWT_PRIVATE_KEY_JWK
-cub server key worker-secret   # WORKER_MASTER_SECRET
+cub server key admin             # the local administrator's keypair
+cub server key signing           # JWT_PRIVATE_KEY_JWK
+cub server key worker-secret     # WORKER_MASTER_SECRET
+cub server key keycloak-client   # the key a server authenticates to Keycloak with
 ```
 
 `key admin` splits the halves: the public one to stdout for the instance's configuration, the
 private one into cub's key directory where `cub auth login --private-key` finds it.
+
+`key keycloak-client` is for pointing a server at a Keycloak you already run, rather than the
+one `keycloak install` bundles. It generates one key and prints both halves: the private one to
+stdout for `KEYCLOAK_CLIENT_PRIVATE_KEY_JWK`, and the public one to stderr as the inline JWKS to
+put on the Keycloak client alongside `clientAuthenticatorType: client-jwt`. Run it once — halves
+from two runs do not go together, and Keycloak reports that as a signature failure rather than
+as a mismatched key.

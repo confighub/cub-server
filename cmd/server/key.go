@@ -95,6 +95,64 @@ Rotating it invalidates every session.`,
 	},
 }
 
+var keyKeycloakJWKS bool
+
+var keyKeycloakClientCmd = &cobra.Command{
+	Use:   "keycloak-client",
+	Short: "Generate the key a server authenticates to Keycloak with",
+	Long: `Generate the Ed25519 key a server uses instead of a Keycloak client secret and
+admin password.
+
+One key, two halves, two systems. The private half goes to stdout and belongs in
+the instance's configuration as ` + config.KeycloakClientKeyEnv + `. The public
+half is printed to stderr as an inline JWKS, and belongs on the Keycloak client:
+
+  clientAuthenticatorType   client-jwt
+  use.jwks.string           true
+  jwks.string               <the JWKS below>
+
+Run it once. Each run generates a different key, and halves from two runs do not
+go together -- Keycloak reports that mismatch as a signature failure, which reads
+as though the assertion were malformed rather than checked against the wrong key.
+
+The JWKS carries a kid, which Keycloak needs to select the key. Assembling one by
+hand without it produces the same misleading failure.
+
+The client also needs a service account with the realm-management roles the
+server uses, and -- if it serves browser login too -- its standard flow enabled
+and the redirect URI registered. Nothing here touches Keycloak or any instance;
+it only generates.
+
+  cub server key keycloak-client           private key to stdout, JWKS to stderr
+  cub server key keycloak-client --jwks    the JWKS to stdout, to pipe`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		privateJWK, err := config.GenerateClientKey()
+		if err != nil {
+			return err
+		}
+		jwks, err := config.ClientJWKS(privateJWK)
+		if err != nil {
+			return err
+		}
+
+		if keyKeycloakJWKS {
+			fmt.Fprintf(os.Stderr, "Public half only. The private half is not recoverable from this;\n")
+			fmt.Fprintf(os.Stderr, "re-run without --jwks to generate a pair you can use.\n\n")
+			fmt.Println(jwks)
+			return nil
+		}
+
+		fmt.Fprintf(os.Stderr, "On the Keycloak client:\n")
+		fmt.Fprintf(os.Stderr, "  clientAuthenticatorType   client-jwt\n")
+		fmt.Fprintf(os.Stderr, "  use.jwks.string           true\n")
+		fmt.Fprintf(os.Stderr, "  jwks.string               %s\n\n", jwks)
+		fmt.Fprintf(os.Stderr, "In the instance's configuration as %s:\n", config.KeycloakClientKeyEnv)
+		fmt.Println(privateJWK)
+		return nil
+	},
+}
+
 var keyWorkerCmd = &cobra.Command{
 	Use:   "worker-secret",
 	Short: "Generate the worker master secret (WORKER_MASTER_SECRET)",
@@ -119,6 +177,9 @@ func init() {
 	keyAdminCmd.Flags().StringVar(&keyAdminName, "name", install.DefaultAdminKeyName,
 		"Name for the private key in cub's key directory")
 
-	keyCmd.AddCommand(keyAdminCmd, keySigningCmd, keyWorkerCmd)
+	keyKeycloakClientCmd.Flags().BoolVar(&keyKeycloakJWKS, "jwks", false,
+		"Write the public key set to stdout instead of the private key")
+
+	keyCmd.AddCommand(keyAdminCmd, keySigningCmd, keyWorkerCmd, keyKeycloakClientCmd)
 	rootCmd.AddCommand(keyCmd)
 }
