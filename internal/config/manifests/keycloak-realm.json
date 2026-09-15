@@ -1,0 +1,75 @@
+{
+  "realm": "confighub",
+  "enabled": true,
+  "displayName": "ConfigHub",
+
+  "sslRequired": "none",
+
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+
+  "organizationsEnabled": true,
+  "organizations": [
+    {
+      "name": "default",
+      "alias": "default",
+      "enabled": true,
+      "description": "Every ConfigHub user is a member of this organization.",
+      "domains": [
+        {
+          "name": "confighub.local",
+          "verified": false
+        }
+      ]
+    }
+  ],
+
+  "clients": [
+    {
+      "clientId": "confighub",
+      "name": "ConfigHub server",
+      "description": "The server. Authenticates by signing an assertion; holds no secret.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "clientAuthenticatorType": "client-jwt",
+      "redirectUris": [],
+      "webOrigins": [],
+      "attributes": {
+        "use.jwks.string": "true",
+        "jwks.string": "",
+        "token.endpoint.auth.signing.alg": "EdDSA"
+      }
+    },
+    {
+      "clientId": "cub",
+      "name": "cub CLI",
+      "description": "The CLI. Public: it runs on the user's machine and can hold no credential.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "attributes": {
+        "oauth2.device.authorization.grant.enabled": "true"
+      }
+    }
+  ],
+
+  "users": [
+    {
+      "username": "service-account-confighub",
+      "enabled": true,
+      "serviceAccountClientId": "confighub",
+      "clientRoles": {
+        "realm-management": ["realm-admin"]
+      }
+    }
+  ]
+}

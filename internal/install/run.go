@@ -28,6 +28,9 @@ func Run(ctx context.Context, u UI, o *Options) error {
 		return err
 	}
 
+	if err := refuseIfKeycloakInstalled(o); err != nil {
+		return err
+	}
 	if err := preflight(ctx, u, o); err != nil {
 		return err
 	}
@@ -52,7 +55,7 @@ func Run(ctx context.Context, u UI, o *Options) error {
 		return err
 	}
 
-	if err := applyManifests(ctx, u, o, kube, files); err != nil {
+	if err := applyManifests(ctx, u, o, kube, files, "Installing ConfigHub"); err != nil {
 		return err
 	}
 
@@ -268,8 +271,19 @@ func outDirFlag(o *Options) string {
 func readPrior(outDir string) (config.Preserved, string, string, error) {
 	prior := config.Preserved{}
 
-	secretPath := filepath.Join(outDir, config.SecretsDir, "confighub-secret.yaml")
-	if data, err := os.ReadFile(secretPath); err == nil {
+	// Both Secrets: generated values are preserved wherever they were rendered,
+	// and Keycloak's admin password is one of them. Missing the second file
+	// would rotate a password Keycloak only reads on a first start, leaving the
+	// console reachable with a value nothing records.
+	for _, name := range []string{"confighub-secret.yaml", "confighub-keycloak-secret.yaml"} {
+		secretPath := filepath.Join(outDir, config.SecretsDir, name)
+		data, err := os.ReadFile(secretPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, "", "", err
+		}
 		var doc struct {
 			StringData map[string]string `yaml:"stringData"`
 		}
@@ -278,8 +292,6 @@ func readPrior(outDir string) (config.Preserved, string, string, error) {
 				prior[k] = v
 			}
 		}
-	} else if !os.IsNotExist(err) {
-		return nil, "", "", err
 	}
 
 	var adminJWK string
@@ -341,8 +353,12 @@ func provisionCluster(ctx context.Context, u UI, o *Options) (kubeEnv, error) {
 }
 
 // applyManifests applies the rendered files in their numbered order.
-func applyManifests(ctx context.Context, u UI, o *Options, kube kubeEnv, files []config.File) error {
-	u.step("Installing ConfigHub")
+//
+// step is the heading to print, because an install applies everything under one
+// and adding an identity provider applies it in two passes with a wait between
+// them. See internal/install/keycloak.go.
+func applyManifests(ctx context.Context, u UI, o *Options, kube kubeEnv, files []config.File, step string) error {
+	u.step("%s", step)
 
 	paths := make([]string, 0, len(files))
 	for _, f := range files {

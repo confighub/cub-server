@@ -1,0 +1,118 @@
+# The bundled identity provider.
+#
+# Numbered before the Deployment so that `kubectl apply -f config/` creates
+# Keycloak first. That is ordering, not readiness: the server hard-fails at
+# startup if it cannot reach Keycloak, so the installer waits for this to be
+# serving before it rolls the server. Applying in one shot and hoping is how a
+# fresh install ends in CrashLoopBackOff.
+---
+# The realm, imported on first start.
+#
+# JSON rather than YAML because Keycloak's importer reads JSON. It is a literal
+# document with the parts that vary per install written into it by path, the same
+# way every other manifest here is handled.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: confighub-keycloak-realm
+  namespace: confighub
+data:
+  # Filled by the renderer from manifests/keycloak-realm.json.
+  confighub-realm.json: ""
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: confighub-keycloak
+  namespace: confighub
+spec:
+  type: ClusterIP
+  selector:
+    app: confighub-keycloak
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: confighub-keycloak
+  namespace: confighub
+spec:
+  serviceName: confighub-keycloak
+  replicas: 1
+  selector:
+    matchLabels:
+      app: confighub-keycloak
+  template:
+    metadata:
+      labels:
+        app: confighub-keycloak
+    spec:
+      containers:
+      - name: keycloak
+        image: quay.io/keycloak/keycloak:26.1.5
+        # start-dev, and deliberately. It runs an embedded database and relaxes
+        # the checks a production Keycloak makes about TLS and hostnames, which
+        # is what lets this come up on a laptop with no certificate and no DNS.
+        # An instance serving real users wants neither this mode nor this
+        # database; it wants a Keycloak of its own, which is why this one is
+        # reachable and replaceable rather than hidden.
+        args: ["start-dev", "--import-realm"]
+        env:
+        # The temporary admin, for reaching Keycloak's own console to add people.
+        # ConfigHub never uses it.
+        - name: KC_BOOTSTRAP_ADMIN_USERNAME
+          value: kcadmin
+        # Read only when Keycloak has no admin yet, which is its first start.
+        # Later starts ignore it, so this is a record of what was set rather
+        # than a way to change it.
+        #
+        # From Keycloak's own Secret, not the server's: the server takes its
+        # Secret whole with envFrom, and this is an admin of the master realm.
+        - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: confighub-keycloak-secret
+              key: KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD
+        # The browser's address, fixed. Every token is issued by it and every
+        # frontchannel URL in the discovery document points at it, which is what
+        # the server verifies tokens against.
+        - name: KC_HOSTNAME
+          value: ""
+        # ... while backchannel URLs follow whichever host asked. That is what
+        # lets the server discover a token endpoint it can reach at a service
+        # name while the browser keeps being sent to the address above.
+        - name: KC_HOSTNAME_BACKCHANNEL_DYNAMIC
+          value: "true"
+        - name: KC_HEALTH_ENABLED
+          value: "true"
+        ports:
+        - name: http
+          containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /realms/master
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 60
+        volumeMounts:
+        - name: realm
+          mountPath: /opt/keycloak/data/import
+          readOnly: true
+        - name: data
+          mountPath: /opt/keycloak/data/h2
+      volumes:
+      - name: realm
+        configMap:
+          name: confighub-keycloak-realm
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 1Gi

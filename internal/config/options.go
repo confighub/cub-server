@@ -101,6 +101,11 @@ type Options struct {
 	// even when the API is a NodePort, since the registry is only needed from
 	// outside the cluster for release publishing.
 	OCINodePort int
+
+	// Keycloak is the bundled identity provider, or nil for an instance whose
+	// only identity is the bootstrap administrator's key. Nil is the first
+	// install; `cub server keycloak install` is what sets it. See keycloak.go.
+	Keycloak *Keycloak
 }
 
 // Defaults fills in what the caller did not specify.
@@ -124,6 +129,9 @@ func (o *Options) Defaults() {
 	}
 	if o.DatabaseImage == "" {
 		o.DatabaseImage = DefaultDatabaseImage
+	}
+	if o.Keycloak != nil {
+		o.Keycloak.Defaults()
 	}
 }
 
@@ -169,6 +177,14 @@ func (o *Options) Validate() error {
 	if o.AdminPublicJWK != "" {
 		if err := ValidateAdminPublicJWK(o.AdminPublicJWK); err != nil {
 			return fmt.Errorf("--admin-jwk: %w", err)
+		}
+	}
+	if o.Keycloak != nil {
+		if err := o.Keycloak.Validate(); err != nil {
+			return err
+		}
+		if o.Keycloak.NodePort != 0 && (o.Keycloak.NodePort == o.APINodePort || o.Keycloak.NodePort == o.OCINodePort) {
+			return fmt.Errorf("--keycloak-node-port %d is already the API or registry port", o.Keycloak.NodePort)
 		}
 	}
 	return nil

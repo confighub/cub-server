@@ -51,10 +51,73 @@ Into a namespace (`confighub` by default):
 |---|---|
 | ConfigHub | API and UI on a NodePort, OCI registry on another |
 | PostgreSQL | bundled by default; `--database=external` points at your own |
+| Keycloak | not installed by default — see [Adding people](#adding-people) |
 
 The API is published on a real host port rather than through `kubectl port-forward`, so the URL
 keeps working after you close the terminal. That is why the NodePorts are fixed defaults: kind
 has to publish them when the node container is created, before there is a cluster to ask.
+
+## Adding people
+
+`cub server install` leaves you with an instance and one administrator, who signs in with a
+key. That is enough to evaluate ConfigHub and enough to run it alone. When other people need
+accounts of their own, install an identity provider:
+
+```sh
+cub server keycloak install
+```
+
+Keycloak is deployed alongside the instance, a realm is imported with the two clients ConfigHub
+needs, and the server is reconfigured and restarted to use it.
+
+**This is additive.** Your administrator key keeps working afterwards, because the server keys
+that on the key being configured rather than on whether an identity provider exists. It becomes
+the break-glass credential — the way back in when the identity provider is the thing that is
+broken:
+
+```sh
+cub auth login --private-key confighub-admin --server http://localhost:32180
+cub auth browser-session
+```
+
+### Connecting your identity provider
+
+```sh
+cub server keycloak idp -i
+```
+
+This asks for your organization's name and email domain, then for your provider's OpenID
+discovery URL and the client id and secret of an application registered for ConfigHub at their
+end. Okta, Entra ID, Google Workspace and Auth0 all publish a discovery document, so one URL
+replaces naming each endpoint. It finishes by printing a redirect URI to register with your
+provider — sign-in fails on the way back without it.
+
+The email domain is not cosmetic. ConfigHub resolves a user's organization from their token and
+shows anyone who belongs to none a pending-approval page, and the domain is what makes someone
+arriving through your provider a member. That is why the organization and the provider are set
+up by one command rather than two: they only produce a working login together.
+
+### The Keycloak console
+
+```sh
+cub server keycloak open              # opens it, admin password on your clipboard
+cub server keycloak open --print-url  # just the URL
+```
+
+For anything the commands above do not cover — adding a user by hand, changing realm settings.
+The password is Keycloak's own administrator, set on its first start. It is not a ConfigHub
+account: it opens that console and nothing else.
+
+### What the server holds
+
+No password and no shared secret. The server authenticates to Keycloak by signing an assertion
+with an Ed25519 key generated during the install; Keycloak holds only the public half, and the
+client's service account is what reaches the admin API. Keycloak's own admin password is in a
+separate Secret that only Keycloak reads, so it is not in the server's environment.
+
+The bundled Keycloak runs in development mode with an embedded database, which is what lets it
+come up on a laptop with no certificate and no DNS. An instance serving real users wants a
+Keycloak of its own.
 
 ## Which server version
 
@@ -94,6 +157,11 @@ failed one picks up where it stopped.
 cub server install --dry-run    # render everything, create nothing
 ```
 
+Once an identity provider is installed, `cub server keycloak install` is the command that
+re-renders the instance, and `cub server install` refuses rather than running. It would drop the
+key the server authenticates to Keycloak with, and Keycloak does not re-import a realm it
+already has — so that key could never be matched again.
+
 ## Install files
 
 Files produced by an install live in one directory (`~/.confighub/servers/<name>` by
@@ -101,10 +169,13 @@ default, or `--out-dir`):
 
 ```
 config/       manifests. No secrets — committable and diffable.
-secrets/      the Secret. Not committable.
+secrets/      the Secrets. Not committable.
 kubeconfig    for the cluster this install created
 kind-cluster.yaml
 ```
+
+With an identity provider installed, `config/` also holds Keycloak's manifests and the realm it
+imports, and `secrets/` holds a second Secret that only Keycloak reads.
 
 One exception is the admin private key which is stored in `~/.confighub/keys` per cub CLI convention.
 

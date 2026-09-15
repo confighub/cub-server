@@ -65,6 +65,17 @@ const (
 	// the value must not be world-readable -- it says nothing about who may
 	// write it, which for public keys is the property that actually matters.
 	InSecret
+
+	// InKeycloakSecret is for values only Keycloak reads.
+	//
+	// A second Secret rather than a second section of the first one, because the
+	// server's Deployment takes its whole Secret with envFrom: anything in there
+	// is in the server's environment whether the server reads it or not. The
+	// Keycloak admin password is exactly what must not be -- it is an admin of
+	// the master realm, which is authority over every realm, and putting it
+	// within reach of the workload whose identity provider it controls undoes
+	// the reason the server authenticates with a key at all.
+	InKeycloakSecret
 )
 
 // Var is one environment variable the server reads.

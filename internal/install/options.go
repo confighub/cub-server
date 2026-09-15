@@ -35,6 +35,10 @@ const (
 	DefaultAPINodePort = 32180
 	DefaultOCINodePort = 32181
 
+	// DefaultKeycloakNodePort is published by a kind install whether or not an
+	// identity provider is ever added, because kind cannot publish it later.
+	DefaultKeycloakNodePort = 32182
+
 	// DefaultAdminKeyName is the alias the administrator's private key is stored
 	// under in cub's key directory, where `cub auth login --private-key` finds
 	// it by that name.
@@ -57,6 +61,16 @@ type Options struct {
 
 	APINodePort int
 	OCINodePort int
+
+	// KeycloakNodePort is where the browser reaches the bundled identity
+	// provider, reserved at cluster creation. See kind.go.
+	KeycloakNodePort int
+
+	// Keycloak is set by `cub server keycloak install` and nil otherwise. It is
+	// the second chapter of an install, not a variation on the first: the
+	// server runs perfectly well without it, and keeps its local administrator
+	// afterwards. See internal/config/keycloak.go.
+	Keycloak *config.Keycloak
 
 	AdminKeyName string
 
@@ -101,6 +115,13 @@ func (o *Options) Defaults() error {
 	if o.OCINodePort == 0 {
 		o.OCINodePort = DefaultOCINodePort
 	}
+	if o.KeycloakNodePort == 0 {
+		o.KeycloakNodePort = DefaultKeycloakNodePort
+	}
+	// Keycloak's addresses are deliberately not defaulted here. They are derived
+	// from ports this instance already published, and those are read back off
+	// the previous render rather than assumed -- see keycloakAddresses, which
+	// runs once that has happened.
 	if o.AdminKeyName == "" {
 		o.AdminKeyName = DefaultAdminKeyName
 	}
@@ -186,6 +207,7 @@ func (o *Options) deploymentOptions() config.Options {
 		Ingress:     config.IngressNone,
 		APINodePort: o.APINodePort,
 		OCINodePort: o.OCINodePort,
+		Keycloak:    o.Keycloak,
 	}
 	opts.Defaults()
 	return opts

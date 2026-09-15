@@ -8,7 +8,7 @@ import (
 	"github.com/confighub/sdk/core/third_party/gaby"
 )
 
-//go:embed manifests/*.yaml
+//go:embed manifests/*.yaml manifests/*.json
 var manifests embed.FS
 
 // configHashAnnotation is the pod-template annotation carrying the hash of the
@@ -76,6 +76,22 @@ func renderConfigMap(opts Options, entries []entry) ([]byte, error) {
 
 func renderSecret(opts Options, entries []entry) ([]byte, error) {
 	docs, err := load("secret.yaml")
+	if err != nil {
+		return nil, err
+	}
+	if err := apply(docs, namespaceEdits(docs, opts.Namespace)); err != nil {
+		return nil, err
+	}
+	if err := fillMap(docs[0], "stringData", entries); err != nil {
+		return nil, err
+	}
+	return docs.Bytes(), nil
+}
+
+// renderKeycloakSecret produces the Secret only Keycloak reads. See
+// InKeycloakSecret for why it is not part of the server's.
+func renderKeycloakSecret(opts Options, entries []entry) ([]byte, error) {
+	docs, err := load("keycloak-secret.yaml")
 	if err != nil {
 		return nil, err
 	}
@@ -192,6 +208,21 @@ func Render(s *Surface, opts Options) ([]File, error) {
 		{path: ConfigDir + "/00-namespace.yaml", render: func() ([]byte, error) { return renderNamespace(opts) }},
 		{path: ConfigDir + "/10-service-account.yaml", render: func() ([]byte, error) { return renderServiceAccount(opts) }},
 		{path: ConfigDir + "/20-configmap.yaml", render: func() ([]byte, error) { return renderConfigMap(opts, configMap) }},
+	}
+	if opts.Keycloak != nil {
+		// Keycloak has to exist before the server starts: the server treats an
+		// unreachable identity provider as fatal rather than as something to
+		// retry, so a numbered order that puts this first is the difference
+		// between an install and a CrashLoopBackOff.
+		clientKey := s.Get(KeycloakClientKeyEnv)
+		steps = append(steps, step{path: ConfigDir + "/25-keycloak.yaml", render: func() ([]byte, error) {
+			return renderKeycloak(opts, clientKey)
+		}})
+		keycloakSecret := entries(s.KeycloakSecretVars())
+		steps = append(steps, step{
+			path: SecretsDir + "/confighub-keycloak-secret.yaml", sensitive: true,
+			render: func() ([]byte, error) { return renderKeycloakSecret(opts, keycloakSecret) },
+		})
 	}
 	if opts.Database == DatabaseInternal {
 		steps = append(steps, step{path: ConfigDir + "/30-database.yaml", render: func() ([]byte, error) { return renderDatabase(opts) }})

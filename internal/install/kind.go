@@ -24,12 +24,21 @@ import (
 // the host if kind published the port when the node container was created, and
 // that cannot be added afterwards -- which is why the NodePorts are fixed
 // defaults rather than allocated once the cluster exists.
+//
+// That is also why the identity provider's port is published here, by an install
+// that is not deploying one. `cub server keycloak install` comes later and
+// cannot add a port to a running cluster, so the alternative to reserving it now
+// is recreating the cluster then. A published port with nothing behind it costs
+// a refused connection; not having one costs the cluster.
 const kindConfigTemplate = `kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: %s
 nodes:
 - role: control-plane
   extraPortMappings:
+  - containerPort: %d
+    hostPort: %d
+    protocol: TCP
   - containerPort: %d
     hostPort: %d
     protocol: TCP
@@ -115,6 +124,7 @@ func createKindCluster(u UI, o *Options) (string, error) {
 		o.ClusterName,
 		o.APINodePort, o.APINodePort,
 		o.OCINodePort, o.OCINodePort,
+		o.KeycloakNodePort, o.KeycloakNodePort,
 	)
 	// Written out as well as passed in. It is the record of how the cluster was
 	// created, next to everything else this install produced.
@@ -126,7 +136,8 @@ func createKindCluster(u UI, o *Options) (string, error) {
 	}
 
 	u.detail("creating kind cluster %q (this takes a minute)", o.ClusterName)
-	u.detail("publishing host ports %d (API) and %d (OCI)", o.APINodePort, o.OCINodePort)
+	u.detail("publishing host ports %d (API), %d (OCI), %d (reserved for Keycloak)",
+		o.APINodePort, o.OCINodePort, o.KeycloakNodePort)
 
 	if err := provider.Create(o.ClusterName,
 		cluster.CreateWithRawConfig([]byte(raw)),

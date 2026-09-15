@@ -20,6 +20,9 @@ type Surface struct {
 func (s *Surface) ConfigMapVars() []Var { return s.byPlacement(InConfigMap) }
 func (s *Surface) SecretVars() []Var    { return s.byPlacement(InSecret) }
 
+// KeycloakSecretVars are the values only Keycloak reads. See InKeycloakSecret.
+func (s *Surface) KeycloakSecretVars() []Var { return s.byPlacement(InKeycloakSecret) }
+
 func (s *Surface) byPlacement(p Placement) []Var {
 	var out []Var
 	for _, v := range s.Vars {
@@ -130,6 +133,58 @@ func Build(opts Options, prior Preserved) (*Surface, error) {
 			Name: "OCI_EXTERNAL_PORT", Placement: InConfigMap,
 			Value: strconv.Itoa(opts.OCINodePort),
 			Doc:   "Port clients pull images from. The NodePort, not the port the registry binds.",
+		})
+	}
+
+	// The bundled identity provider, when there is one. Absent entirely on an
+	// instance whose only identity is the administrator's key: the server treats
+	// a realm, auth URL and redirect URI as all-or-nothing, and half of them is
+	// fatal rather than ignored.
+	if kc := opts.Keycloak; kc != nil {
+		add(Var{
+			Name: "KEYCLOAK_REALM", Placement: InConfigMap, Value: kc.Realm,
+			Doc: "Realm this instance's users live in.",
+		})
+		add(Var{
+			Name: "KEYCLOAK_AUTH_URL", Placement: InConfigMap, Value: kc.PublicURL,
+			Doc: "Where a browser reaches Keycloak, and so the issuer of every token it mints.",
+		})
+		add(Var{
+			Name: "KEYCLOAK_INTERNAL_URL", Placement: InConfigMap, Value: kc.InternalURL(opts.Namespace),
+			Doc: "Where the server reaches Keycloak. The address above is the browser's and does not resolve in here.",
+		})
+		add(Var{
+			Name: "KEYCLOAK_REDIRECT_URI", Placement: InConfigMap, Value: kc.RedirectURI,
+			Doc: "Where Keycloak sends the browser back after a login.",
+		})
+		add(Var{
+			Name: "KEYCLOAK_CLIENT_ID", Placement: InConfigMap, Value: kc.ClientID,
+			Doc: "The client the server authenticates as.",
+		})
+		add(Var{
+			Name: "KEYCLOAK_DEVICE_CLIENT_ID", Placement: InConfigMap, Value: kc.DeviceClientID,
+			Doc: "The public client cub authenticates through. Public because it runs on the user's machine.",
+		})
+
+		clientKey, generated, err := keep(KeycloakClientKeyEnv, GenerateClientKey)
+		if err != nil {
+			return nil, fmt.Errorf("resolving the Keycloak client key: %w", err)
+		}
+		// The server's whole credential. Replacing it would leave Keycloak
+		// holding the public half of a key nobody signs with any more, so it is
+		// preserved across re-runs like every other generated value.
+		add(Var{
+			Name: KeycloakClientKeyEnv, Placement: InSecret, Value: clientKey, Generated: generated,
+			Doc: "Signs this server's assertions to Keycloak. Replaces both a client secret and an admin password.",
+		})
+
+		bootstrapPassword, generated, err := keep(keycloakBootstrapPasswordVar, RandomSecret)
+		if err != nil {
+			return nil, fmt.Errorf("resolving the Keycloak admin password: %w", err)
+		}
+		add(Var{
+			Name: keycloakBootstrapPasswordVar, Placement: InKeycloakSecret, Value: bootstrapPassword, Generated: generated,
+			Doc: "Keycloak's own console admin, set on its first start and ignored on every later one.",
 		})
 	}
 

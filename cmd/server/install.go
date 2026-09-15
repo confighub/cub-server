@@ -71,6 +71,10 @@ func init() {
 
 	f.IntVar(&installOpts.APINodePort, "node-port", 0, fmt.Sprintf("Host port the API answers on (default %d)", install.DefaultAPINodePort))
 	f.IntVar(&installOpts.OCINodePort, "oci-node-port", 0, fmt.Sprintf("Host port the OCI registry answers on (default %d)", install.DefaultOCINodePort))
+	// Published now even though nothing is deployed behind it, because kind can
+	// only publish a port when it creates the node. See internal/install/kind.go.
+	f.IntVar(&installOpts.KeycloakNodePort, "keycloak-node-port", 0,
+		fmt.Sprintf("Host port to reserve for 'cub server keycloak install' (default %d)", install.DefaultKeycloakNodePort))
 
 	f.StringVar(&installOpts.AdminKeyName, "admin-key-name", "", "Name for the administrator key in cub's key directory (default "+install.DefaultAdminKeyName+")")
 	f.BoolVar(&installOpts.NewAdminKey, "new-admin-key", false, "Generate a new administrator keypair instead of reusing one already in cub's key store")
