@@ -8,7 +8,7 @@ import (
 )
 
 // CUB_CONFIG names the config directory. That is what cub sets when it execs a
-// plugin, what the docs say, and since confighub#5224 what cubapi resolves from.
+// plugin, what the docs say, and what cubapi resolves from.
 //
 // The directory form is the one to test with. cub's pluginEnv appends its own
 // CUB_CONFIG after os.Environ(), so a test that exports the file form shadows
