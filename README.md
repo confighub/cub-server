@@ -65,25 +65,29 @@ along instead of failing. Re-running an install keeps the ports the instance alr
 ## Adding people
 
 `cub server install` leaves you with an instance and one administrator, who signs in with a
-key. That is enough to evaluate ConfigHub and enough to run it alone. When other people need
-accounts of their own, install an identity provider:
+key (located in ~/.confighub/keys). That is enough to evaluate ConfigHub and enough to run it alone. To support multiple users, ConfigHub relies on keycloak as an IdP and SSO broker. Install it with:
 
 ```sh
 cub server keycloak install
 ```
 
 Keycloak is deployed alongside the instance, a realm is imported with the two clients ConfigHub
-needs, and the server is reconfigured and restarted to use it.
+needs, and the server is reconfigured and restarted to use it. After installation you can log into keycloak's admin interface with:
 
-**This is additive.** Your administrator key keeps working afterwards, because the server keys
-that on the key being configured rather than on whether an identity provider exists. It becomes
-the break-glass credential — the way back in when the identity provider is the thing that is
-broken:
+```sh
+cub server keycloak open
+```
+
+This will copy the kcadmin password to the clipboard and open your browser on the web interface. Login with user `kcadmin` and the password in the clipboard.
+
+**This is additive.** Your administrator user and key keep working afterwards. It can be used for break-glass operations when there are issues with the keycloak setup that prevents other users from logging in:
 
 ```sh
 cub auth login --private-key confighub-admin --server http://localhost:32180
 cub auth browser-session
 ```
+
+While you can use keycloak to manage users directly
 
 ### Connecting your identity provider
 
@@ -140,15 +144,22 @@ Re-running an install keeps the version the instance is already on; it resumes r
 upgrading. Pass `--image` to move it, which is also how you install without reaching the
 registry at all.
 
-## Targets
+## Where it runs
+
+With nothing named, an install creates a kind cluster. Name a kubeconfig context and it installs
+into the cluster you already have:
 
 ```sh
-cub server install                                          # create a kind cluster
-cub server install --target=context --kube-context=my-cluster   # use one you have
+cub server install                              # creates a kind cluster
+cub server install --cluster-name evaluation    # ...under a different name
+cub server install --kube-context my-cluster    # a cluster you already have
 ```
 
 Both render the same manifests. An evaluation on a laptop and a real deployment differ in where
 they run, not in what runs.
+
+`--cluster-name` and `--kube-context` are the two halves of that choice — one creates, the other
+uses — so naming both is refused rather than resolved.
 
 ## Re-running is safe
 

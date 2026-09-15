@@ -17,8 +17,8 @@ var installCmd = &cobra.Command{
 	Long: `Install a ConfigHub instance and leave you authenticated to it.
 
 By default it creates a local kind cluster, so the only prerequisite is a
-running Docker. With --target=context it installs into a cluster you already
-have, using the same manifests.
+running Docker. Name a kubeconfig context with --kube-context and it installs
+into a cluster you already have, using the same manifests.
 
 The instance is created with no identity provider. An administrator keypair is
 generated during the install: the public half goes into the instance's
@@ -34,8 +34,8 @@ worker that had enrolled.
 Examples:
   cub server install -i                        answer questions, then install
   cub server install                           defaults: a kind cluster
-  cub server install --node-port 32200         when 32180 is taken
-  cub server install --target=context --kube-context=my-cluster
+  cub server install --node-port 32200         choose the host port yourself
+  cub server install --kube-context my-cluster a cluster you already have
   cub server install --dry-run                 render the manifests, create nothing`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -59,9 +59,12 @@ func init() {
 	f := installCmd.Flags()
 	f.BoolVarP(&installInteractive, "interactive", "i", false, "Ask before installing, instead of taking every default")
 
-	f.StringVar((*string)(&installOpts.Target), "target", "", "kind (create a local cluster) or context (use one you have) (default kind)")
+	// Superseded by --kube-context, which says the same thing by naming the
+	// cluster. Accepted so anything written against v0.2.0 keeps working.
+	f.StringVar((*string)(&installOpts.Target), "target", "", "")
+	_ = f.MarkHidden("target")
 	f.StringVar(&installOpts.ClusterName, "cluster-name", "", "Name of the kind cluster to create (default "+install.DefaultClusterName+")")
-	f.StringVar(&installOpts.KubeContext, "kube-context", "", "Kubeconfig context to install into, with --target=context")
+	f.StringVar(&installOpts.KubeContext, "kube-context", "", "Kubeconfig context to install into, instead of creating a kind cluster")
 
 	f.StringVar(&installOpts.Namespace, "namespace", "", "Namespace to install into (default "+install.DefaultNamespace+")")
 	f.StringVar(&installOpts.Image, "image", "", "Server image, tag included (default: the newest released version, resolved from the registry)")

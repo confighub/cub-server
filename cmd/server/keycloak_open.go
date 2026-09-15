@@ -59,7 +59,8 @@ func init() {
 	// The flags that locate the instance, matching `keycloak install`.
 	f.StringVar(&keycloakOpenOpts.OutDir, "out-dir", "", "Directory holding the instance's generated manifests")
 	f.StringVar(&keycloakOpenOpts.Namespace, "namespace", "", "Namespace the instance is in")
-	f.StringVar((*string)(&keycloakOpenOpts.Target), "target", "", "Where the instance runs: kind or context")
+	f.StringVar((*string)(&keycloakOpenOpts.Target), "target", "", "")
+	_ = f.MarkHidden("target")
 	f.StringVar(&keycloakOpenOpts.ClusterName, "cluster-name", "", "kind cluster the instance is in")
 	f.StringVar(&keycloakOpenOpts.KubeContext, "kube-context", "", "Kubeconfig context the instance is in")
 

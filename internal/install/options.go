@@ -98,9 +98,19 @@ type Options struct {
 // Defaults fills in what the caller did not set.
 func (o *Options) Defaults() error {
 	if o.Target == "" {
-		o.Target = TargetKind
+		// Which cluster to use follows from whether one was named. A kubeconfig
+		// context names a cluster that exists; nothing named means create one.
+		// Asking for both an answer and the evidence for it leaves two flags
+		// that can disagree, and a rule whose only job is to catch them.
+		if o.KubeContext != "" {
+			o.Target = TargetContext
+		} else {
+			o.Target = TargetKind
+		}
 	}
-	if o.ClusterName == "" {
+	// Only meaningful for a cluster this creates. Left empty otherwise so that
+	// naming one alongside a kubeconfig context reads as the contradiction it is.
+	if o.ClusterName == "" && o.Target == TargetKind {
 		o.ClusterName = DefaultClusterName
 	}
 	if o.Namespace == "" {
@@ -169,12 +179,15 @@ func sanitize(s string) string {
 func (o *Options) Validate() error {
 	switch o.Target {
 	case TargetKind:
-		if o.KubeContext != "" {
-			return fmt.Errorf("--kube-context applies to an existing cluster; pass --target=context to install into one")
-		}
 	case TargetContext:
 		if o.KubeContext == "" {
+			// Only reachable by naming --target=context explicitly, since
+			// otherwise this mode is chosen by --kube-context being present.
 			return fmt.Errorf("--target=context needs the context to install into: pass --kube-context")
+		}
+		if o.ClusterName != "" {
+			return fmt.Errorf(
+				"--cluster-name creates a cluster and --kube-context uses one you have; pass one or the other")
 		}
 	default:
 		return fmt.Errorf("unknown target %q: expected kind or context", o.Target)

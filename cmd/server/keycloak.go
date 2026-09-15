@@ -82,7 +82,8 @@ func init() {
 	// re-renders the same instance and has to find it the same way.
 	f.StringVar(&keycloakOpts.OutDir, "out-dir", "", "Directory holding the instance's generated manifests")
 	f.StringVar(&keycloakOpts.Namespace, "namespace", "", "Namespace the instance is in")
-	f.StringVar((*string)(&keycloakOpts.Target), "target", "", "Where the instance runs: kind or context")
+	f.StringVar((*string)(&keycloakOpts.Target), "target", "", "")
+	_ = f.MarkHidden("target")
 	f.StringVar(&keycloakOpts.ClusterName, "cluster-name", "", "kind cluster the instance is in")
 	f.StringVar(&keycloakOpts.KubeContext, "kube-context", "", "Kubeconfig context the instance is in")
 	f.BoolVar(&keycloakOpts.DryRun, "dry-run", false, "Render the manifests without changing the cluster")

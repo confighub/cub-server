@@ -42,9 +42,10 @@ remove.`,
 
 func init() {
 	f := uninstallCmd.Flags()
-	f.StringVar((*string)(&uninstallOpts.Target), "target", "", "kind or context (default kind)")
+	f.StringVar((*string)(&uninstallOpts.Target), "target", "", "")
+	_ = f.MarkHidden("target")
 	f.StringVar(&uninstallOpts.ClusterName, "cluster-name", "", "Name of the kind cluster to delete (default "+install.DefaultClusterName+")")
-	f.StringVar(&uninstallOpts.KubeContext, "kube-context", "", "Kubeconfig context to remove the namespace from, with --target=context")
+	f.StringVar(&uninstallOpts.KubeContext, "kube-context", "", "Kubeconfig context to remove the namespace from, instead of a kind cluster")
 	f.StringVar(&uninstallOpts.Namespace, "namespace", "", "Namespace to delete (default "+install.DefaultNamespace+")")
 	f.StringVar(&uninstallOpts.OutDir, "out-dir", "", "Generated config to remove (default ~/.confighub/servers/<name>)")
 	f.BoolVar(&uninstallKeepConfig, "keep-config", false, "Leave the generated config in place, so a reinstall is the same instance")

@@ -62,9 +62,11 @@ func TestValidateRejectsUnworkableCombinations(t *testing.T) {
 			want: "--kube-context",
 		},
 		{
-			name: "kind target with a context",
-			o:    Options{Target: TargetKind, KubeContext: "somewhere"},
-			want: "--target=context",
+			// Naming a cluster to create and a cluster to use is the one
+			// combination that cannot be resolved by preferring either.
+			name: "a cluster to create and a cluster to use",
+			o:    Options{Target: TargetContext, KubeContext: "somewhere", ClusterName: "mine"},
+			want: "--cluster-name",
 		},
 		{
 			name: "unknown target",
@@ -194,5 +196,40 @@ func TestReadPriorOnAnEmptyDirectory(t *testing.T) {
 	}
 	if len(prior) != 0 || adminJWK != "" {
 		t.Errorf("expected nothing recovered, got %d values and adminJWK=%q", len(prior), adminJWK)
+	}
+}
+
+// Naming a kubeconfig context is how an existing cluster is chosen. It used to
+// take a second flag saying the same thing, plus a rule to catch the two
+// disagreeing.
+func TestKubeContextSelectsAnExistingCluster(t *testing.T) {
+	o := &Options{KubeContext: "my-cluster"}
+	if err := o.Defaults(); err != nil {
+		t.Fatal(err)
+	}
+	if o.Target != TargetContext {
+		t.Errorf("target = %q, want %q from --kube-context alone", o.Target, TargetContext)
+	}
+	// Nothing is being created, so there is no cluster to name -- and leaving it
+	// empty is what lets Validate see --cluster-name as a contradiction.
+	if o.ClusterName != "" {
+		t.Errorf("ClusterName = %q, want empty when using a cluster that exists", o.ClusterName)
+	}
+	if err := o.Validate(); err != nil {
+		t.Errorf("should be installable: %v", err)
+	}
+}
+
+// With no cluster named, one is created.
+func TestNoContextMeansCreateACluster(t *testing.T) {
+	o := &Options{}
+	if err := o.Defaults(); err != nil {
+		t.Fatal(err)
+	}
+	if o.Target != TargetKind {
+		t.Errorf("target = %q, want %q", o.Target, TargetKind)
+	}
+	if o.ClusterName != DefaultClusterName {
+		t.Errorf("ClusterName = %q, want %q", o.ClusterName, DefaultClusterName)
 	}
 }
