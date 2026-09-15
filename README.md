@@ -87,9 +87,9 @@ cub auth login --private-key confighub-admin --server http://localhost:32180
 cub auth browser-session
 ```
 
-While you can use keycloak to manage users directly
-
 ### Connecting your identity provider
+
+While you can use keycloak to manage users directly, in most cases you will want to connect a ConfigHub organization to your company's identity provider using OIDC or SAML. Only OIDC is currently supported by this cli plugin:
 
 ```sh
 cub server keycloak idp -i
