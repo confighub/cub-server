@@ -94,6 +94,13 @@ func RunKeycloak(ctx context.Context, u UI, o *Options) error {
 		return err
 	}
 
+	// Before the server starts reading tokens, not after: an instance whose
+	// first login fails with "carries no organization" is one whose install
+	// looked like it worked.
+	if err := configureRealmClaims(ctx, o); err != nil {
+		return err
+	}
+
 	if err := applyManifests(ctx, u, o, kube, serverFiles, "Pointing the server at it"); err != nil {
 		return err
 	}
@@ -123,6 +130,12 @@ func keycloakAddresses(o *Options) {
 	}
 	if o.Keycloak.RedirectURI == "" {
 		o.Keycloak.RedirectURI = o.APIURL() + "/auth/callback"
+	}
+	// The UI is served by the instance, so a browser comes back to its origin.
+	// The trailing slash is what the auth flow sends as redirect_uri, and OAuth
+	// matches redirect URIs exactly.
+	if o.Keycloak.UIRedirectURI == "" {
+		o.Keycloak.UIRedirectURI = o.APIURL() + "/"
 	}
 	o.Keycloak.Defaults()
 }
@@ -292,4 +305,18 @@ func secretValue(outDir, key string) (string, error) {
 		return "", fmt.Errorf("%s is not in the generated secret", key)
 	}
 	return value, nil
+}
+
+// configureRealmClaims finishes the realm through the admin API, for the parts a
+// realm import cannot express. Today that is one mapper; see
+// enableOrganizationIDClaim for why it is not in the imported document.
+func configureRealmClaims(ctx context.Context, o *Options) error {
+	admin, err := newKeycloakAdmin(ctx, o)
+	if err != nil {
+		return fmt.Errorf("reaching the Keycloak admin API: %w", err)
+	}
+	if err := admin.enableOrganizationIDClaim(ctx); err != nil {
+		return fmt.Errorf("configuring the organization claim: %w", err)
+	}
+	return nil
 }

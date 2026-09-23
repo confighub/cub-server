@@ -166,6 +166,25 @@ func Build(opts Options, prior Preserved) (*Surface, error) {
 			Doc: "The public client cub authenticates through. Public because it runs on the user's machine.",
 		})
 
+		// What the embedded UI needs to sign in as its own OAuth client.
+		//
+		// The three go together and mean one thing: the browser runs OIDC against
+		// the issuer, gets a token stamped with the audience, and exchanges it at
+		// the server for a ConfigHub one. Without them the server serves no
+		// /config.json and the UI has no way in.
+		add(Var{
+			Name: "CONFIGHUB_UI_OAUTH_CLIENT_ID", Placement: InConfigMap, Value: kc.UIClientID,
+			Doc: "The client the UI authenticates as. Its presence is what puts the UI in bearer mode.",
+		})
+		add(Var{
+			Name: "CONFIGHUB_IDP_ISSUER", Placement: InConfigMap, Value: kc.Issuer(),
+			Doc: "Realm the UI runs OIDC against, and the issuer of the tokens the server exchanges.",
+		})
+		add(Var{
+			Name: "CONFIGHUB_IDP_AUDIENCE", Placement: InConfigMap, Value: kc.Audience(),
+			Doc: "Audience this instance requires in a token it will exchange; the UI client emits it.",
+		})
+
 		clientKey, generated, err := keep(KeycloakClientKeyEnv, GenerateClientKey)
 		if err != nil {
 			return nil, fmt.Errorf("resolving the Keycloak client key: %w", err)

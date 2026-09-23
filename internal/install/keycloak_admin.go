@@ -309,3 +309,64 @@ func truncateBody(body []byte) string {
 	}
 	return s[:max] + "..."
 }
+
+// The organization claim, and why it has to be turned on.
+//
+// ConfigHub resolves a user's organization from the token alone: the exchange
+// reads an id out of the `organization` claim and will not call the IdP's admin
+// API to look one up. Keycloak's organization mapper emits bare aliases unless
+// "Add organization ID" is set, and a realm that emits aliases produces a login
+// that ends in "subject_token carries no organization".
+//
+// It is set here rather than in the imported realm because a realm import that
+// declares client scopes replaces the built-in ones instead of adding to them:
+// naming the organization scope in the document would leave the realm with that
+// scope and nothing else. So the import creates the realm and this adjusts the
+// one mapper afterwards.
+
+// organizationScopeName is Keycloak's own name for the scope carrying the claim.
+const organizationScopeName = "organization"
+
+type keycloakClientScope struct {
+	ID              string                `json:"id"`
+	Name            string                `json:"name"`
+	ProtocolMappers []keycloakProtoMapper `json:"protocolMappers"`
+}
+
+type keycloakProtoMapper struct {
+	ID             string            `json:"id"`
+	Name           string            `json:"name"`
+	Protocol       string            `json:"protocol"`
+	ProtocolMapper string            `json:"protocolMapper"`
+	Config         map[string]string `json:"config"`
+}
+
+// enableOrganizationIDClaim makes the organization claim carry ids.
+//
+// Idempotent: a realm where it is already set is left alone, so re-running an
+// install neither fails nor writes.
+func (k *keycloakAdmin) enableOrganizationIDClaim(ctx context.Context) error {
+	var scopes []keycloakClientScope
+	if err := k.do(ctx, http.MethodGet, "/client-scopes", nil, &scopes); err != nil {
+		return err
+	}
+
+	for _, scope := range scopes {
+		if scope.Name != organizationScopeName {
+			continue
+		}
+		for _, mapper := range scope.ProtocolMappers {
+			if mapper.ProtocolMapper != "oidc-organization-membership-mapper" {
+				continue
+			}
+			if mapper.Config["addOrganizationId"] == "true" {
+				return nil
+			}
+			mapper.Config["addOrganizationId"] = "true"
+			return k.do(ctx, http.MethodPut,
+				"/client-scopes/"+scope.ID+"/protocol-mappers/models/"+mapper.ID, mapper, nil)
+		}
+		return fmt.Errorf("the %q client scope has no organization membership mapper, so tokens cannot carry an organization id", organizationScopeName)
+	}
+	return fmt.Errorf("realm %q has no %q client scope; organizations are what ConfigHub resolves a user's organization from", k.realm, organizationScopeName)
+}
