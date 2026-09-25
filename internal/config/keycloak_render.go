@@ -111,6 +111,15 @@ func renderRealm(k *Keycloak, clientJWKS string) ([]byte, error) {
 
 		{"clients.1.clientId", k.DeviceClientID},
 
+		// The UI's own client. Its redirect URI is exact -- the instance's origin,
+		// which is where the server serves the UI -- because a public client is
+		// secured by PKCE and by having nowhere else to send a code. The audience
+		// is what the server pins on a token it will exchange.
+		{"clients.2.clientId", k.UIClientID},
+		{"clients.2.redirectUris", []any{k.UIRedirectURI}},
+		{"clients.2.webOrigins", []any{strings.TrimSuffix(k.UIRedirectURI, "/")}},
+		{"clients.2.protocolMappers.0.config." + segment("included.custom.audience"), k.Audience()},
+
 		{"users.0.username", "service-account-" + k.ClientID},
 		{"users.0.serviceAccountClientId", k.ClientID},
 	}

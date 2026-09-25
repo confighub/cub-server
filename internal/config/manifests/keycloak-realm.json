@@ -2,14 +2,11 @@
   "realm": "confighub",
   "enabled": true,
   "displayName": "ConfigHub",
-
   "sslRequired": "none",
-
   "registrationAllowed": false,
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
   "resetPasswordAllowed": true,
-
   "organizationsEnabled": true,
   "organizations": [
     {
@@ -25,7 +22,6 @@
       ]
     }
   ],
-
   "clients": [
     {
       "clientId": "confighub",
@@ -59,16 +55,46 @@
       "attributes": {
         "oauth2.device.authorization.grant.enabled": "true"
       }
+    },
+    {
+      "clientId": "confighub-ui",
+      "name": "ConfigHub UI",
+      "description": "The embedded web UI. Public: it runs in the browser, so PKCE and an exact redirect URI stand in for a secret.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+"
+      },
+      "protocolMappers": [
+        {
+          "name": "confighub-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
     }
   ],
-
   "users": [
     {
       "username": "service-account-confighub",
       "enabled": true,
       "serviceAccountClientId": "confighub",
       "clientRoles": {
-        "realm-management": ["realm-admin"]
+        "realm-management": [
+          "realm-admin"
+        ]
       }
     }
   ]

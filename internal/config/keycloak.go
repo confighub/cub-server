@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/confighub/sdk/core/jwk"
 )
@@ -55,7 +56,14 @@ const (
 	DefaultKeycloakRealm          = "confighub"
 	DefaultKeycloakClientID       = "confighub"
 	DefaultKeycloakDeviceClientID = "cub"
-	DefaultKeycloakAdminUser      = "kcadmin"
+
+	// DefaultKeycloakUIClientID is the client the embedded UI runs as.
+	//
+	// Its own client rather than the server's: the UI is a browser app and can
+	// hold no secret, so it is public and secured by PKCE and an exact redirect
+	// URI. The server stays confidential, because it signs assertions.
+	DefaultKeycloakUIClientID = "confighub-ui"
+	DefaultKeycloakAdminUser  = "kcadmin"
 
 	// DefaultKeycloakOrgDomain is the organization's email domain.
 	//
@@ -94,6 +102,12 @@ type Keycloak struct {
 	ClientID       string
 	DeviceClientID string
 
+	// UIClientID is the public client the embedded UI authenticates as, and
+	// UIRedirectURI is the one address Keycloak will return to -- the instance's
+	// own origin, because the server serves the UI.
+	UIClientID    string
+	UIRedirectURI string
+
 	// Org is the organization users are members of. See DefaultKeycloakOrg.
 	Org string
 
@@ -116,6 +130,9 @@ func (k *Keycloak) Defaults() {
 	}
 	if k.DeviceClientID == "" {
 		k.DeviceClientID = DefaultKeycloakDeviceClientID
+	}
+	if k.UIClientID == "" {
+		k.UIClientID = DefaultKeycloakUIClientID
 	}
 	if k.Org == "" {
 		k.Org = DefaultKeycloakOrg
@@ -142,6 +159,9 @@ func (k *Keycloak) Validate() error {
 	if k.RedirectURI == "" {
 		return fmt.Errorf("the redirect URI is required: it is where Keycloak sends the browser back")
 	}
+	if k.UIRedirectURI == "" {
+		return fmt.Errorf("the UI redirect URI is required: it is the instance's own origin, where a browser lands after signing in")
+	}
 	if k.NodePort != 0 && (k.NodePort < 30000 || k.NodePort > 32767) {
 		return fmt.Errorf("--keycloak-node-port %d is outside the NodePort range 30000-32767", k.NodePort)
 	}
@@ -159,6 +179,25 @@ const KeycloakServiceName = "confighub-keycloak"
 // the manifests did not create.
 func (k *Keycloak) InternalURL(namespace string) string {
 	return fmt.Sprintf("http://%s.%s.svc:8080", KeycloakServiceName, namespace)
+}
+
+// Issuer is the realm as every token names it, which is the browser's address.
+//
+// What the server dials is InternalURL; see the two-address note on the config
+// it renders. The server needs the issuer to run token exchange for the UI:
+// /api/info advertises it, the browser runs OIDC against it, and the token that
+// comes back is exchanged for a ConfigHub one.
+func (k *Keycloak) Issuer() string {
+	return fmt.Sprintf("%s/realms/%s", strings.TrimSuffix(k.PublicURL, "/"), k.Realm)
+}
+
+// Audience is what this instance requires in a token it will exchange, and so
+// what the UI client is configured to emit.
+//
+// Any stable string does, and the server's own client id is one: it names the
+// resource server the token is for, and there is already exactly one of it.
+func (k *Keycloak) Audience() string {
+	return k.ClientID
 }
 
 // GenerateClientKey mints the key the server authenticates to Keycloak with.

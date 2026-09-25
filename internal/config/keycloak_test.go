@@ -8,8 +8,9 @@ import (
 
 func testKeycloak() *Keycloak {
 	k := &Keycloak{
-		PublicURL:   "http://localhost:32182",
-		RedirectURI: "http://localhost:32180/auth/callback",
+		PublicURL:     "http://localhost:32182",
+		RedirectURI:   "http://localhost:32180/auth/callback",
+		UIRedirectURI: "http://localhost:32180/",
 	}
 	k.Defaults()
 	return k
@@ -59,8 +60,8 @@ func TestRealmCarriesTheClientKey(t *testing.T) {
 	if len(realm.Organizations) != 1 || realm.Organizations[0].Name != DefaultKeycloakOrg {
 		t.Errorf("organizations are %+v, want one named %q", realm.Organizations, DefaultKeycloakOrg)
 	}
-	if len(realm.Clients) != 2 {
-		t.Fatalf("got %d clients, want the server's and the CLI's", len(realm.Clients))
+	if len(realm.Clients) != 3 {
+		t.Fatalf("got %d clients, want the server's, the CLI's and the UI's", len(realm.Clients))
 	}
 
 	server := realm.Clients[0]
@@ -104,6 +105,20 @@ func TestRealmCarriesTheClientKey(t *testing.T) {
 	cli := realm.Clients[1]
 	if !cli.PublicClient {
 		t.Error("the CLI's client is confidential, but it runs on a user's machine and can hold no credential")
+	}
+
+	// The UI is a browser app: public, so PKCE and one exact redirect URI are
+	// what stand in for a secret. A wildcard here would hand a code to anywhere
+	// under the origin.
+	ui := realm.Clients[2]
+	if !ui.PublicClient {
+		t.Error("the UI's client is confidential, but it runs in a browser and can hold no secret")
+	}
+	if ui.Attributes["pkce.code.challenge.method"] != "S256" {
+		t.Errorf("the UI's client enforces PKCE %q, want S256", ui.Attributes["pkce.code.challenge.method"])
+	}
+	if want := "http://localhost:32180/"; len(ui.RedirectURIs) != 1 || ui.RedirectURIs[0] != want {
+		t.Errorf("the UI's redirect URIs are %v, want exactly [%s]", ui.RedirectURIs, want)
 	}
 }
 
@@ -194,6 +209,7 @@ func TestKeycloakVarsOnlyWhenConfigured(t *testing.T) {
 	keycloakNames := []string{
 		"KEYCLOAK_REALM", "KEYCLOAK_AUTH_URL", "KEYCLOAK_INTERNAL_URL",
 		"KEYCLOAK_REDIRECT_URI", "KEYCLOAK_CLIENT_ID", "KEYCLOAK_DEVICE_CLIENT_ID",
+		"CONFIGHUB_UI_OAUTH_CLIENT_ID", "CONFIGHUB_IDP_ISSUER", "CONFIGHUB_IDP_AUDIENCE",
 		KeycloakClientKeyEnv,
 	}
 
@@ -228,6 +244,17 @@ func TestKeycloakVarsOnlyWhenConfigured(t *testing.T) {
 	}
 	if want := "http://confighub-keycloak.confighub.svc:8080"; s.Get("KEYCLOAK_INTERNAL_URL") != want {
 		t.Errorf("internal URL is %q, want %q", s.Get("KEYCLOAK_INTERNAL_URL"), want)
+	}
+
+	// The issuer is the browser's address, never the dialed one: it is what
+	// tokens name, and a token whose issuer does not match is rejected.
+	if want := "http://localhost:32182/realms/confighub"; s.Get("CONFIGHUB_IDP_ISSUER") != want {
+		t.Errorf("issuer is %q, want %q", s.Get("CONFIGHUB_IDP_ISSUER"), want)
+	}
+	// The audience the server pins has to be the one the UI client stamps, or
+	// every exchange fails on the audience check.
+	if s.Get("CONFIGHUB_IDP_AUDIENCE") != with.Keycloak.Audience() {
+		t.Errorf("audience is %q, want %q", s.Get("CONFIGHUB_IDP_AUDIENCE"), with.Keycloak.Audience())
 	}
 }
 
