@@ -58,6 +58,21 @@ func RunKeycloak(ctx context.Context, u UI, o *Options) error {
 		return err
 	}
 
+	// Before anything is generated, so that pointing this at the wrong cluster
+	// changes neither the cluster nor the record. This command adds to an
+	// instance; it must find that instance rather than create a cluster, adopt
+	// one that happens to share its name, or apply over a different one.
+	var kube kubeEnv
+	if !o.DryRun {
+		var err error
+		if kube, err = existingCluster(u, o); err != nil {
+			return err
+		}
+		if err := refuseIfAnotherInstance(ctx, kube, o, true); err != nil {
+			return err
+		}
+	}
+
 	files, err := generateKeycloak(u, o)
 	if err != nil {
 		return err
@@ -70,11 +85,6 @@ func RunKeycloak(ctx context.Context, u UI, o *Options) error {
 			"Re-run without --dry-run to apply this configuration.",
 		)
 		return nil
-	}
-
-	kube, err := provisionCluster(ctx, u, o)
-	if err != nil {
-		return err
 	}
 
 	// In two passes, and the order is the whole point. The server reads its
@@ -107,6 +117,9 @@ func RunKeycloak(ctx context.Context, u UI, o *Options) error {
 	if err := kube.waitForRollout(ctx, o.Namespace, "deployment", "confighub", rolloutTimeout); err != nil {
 		return err
 	}
+	if err := kube.waitForRollout(ctx, o.Namespace, "deployment", uiDeploymentName, rolloutTimeout); err != nil {
+		return err
+	}
 	u.detail("api at %s...", o.APIURL())
 	if err := waitForAPI(ctx, o.APIURL(), readyTimeout); err != nil {
 		return err
@@ -128,14 +141,10 @@ func keycloakAddresses(o *Options) {
 	if o.Keycloak.PublicURL == "" {
 		o.Keycloak.PublicURL = fmt.Sprintf("http://localhost:%d", o.Keycloak.NodePort)
 	}
-	if o.Keycloak.RedirectURI == "" {
-		o.Keycloak.RedirectURI = o.APIURL() + "/auth/callback"
-	}
-	// The UI is served by the instance, so a browser comes back to its origin.
-	// The trailing slash is what the auth flow sends as redirect_uri, and OAuth
-	// matches redirect URIs exactly.
+	// A browser comes back to the UI's origin. The trailing slash is what the
+	// auth flow sends as redirect_uri, and OAuth matches redirect URIs exactly.
 	if o.Keycloak.UIRedirectURI == "" {
-		o.Keycloak.UIRedirectURI = o.APIURL() + "/"
+		o.Keycloak.UIRedirectURI = o.UIURL() + "/"
 	}
 	o.Keycloak.Defaults()
 }
@@ -148,7 +157,7 @@ func keycloakAddresses(o *Options) {
 // on its old configuration until its Deployment is replaced.
 func splitAtServer(files []config.File) (before, server []config.File) {
 	for _, f := range files {
-		if strings.HasSuffix(f.Path, "40-deployment.yaml") {
+		if strings.HasSuffix(f.Path, "40-deployment.yaml") || strings.HasSuffix(f.Path, "45-ui.yaml") {
 			server = append(server, f)
 			continue
 		}
@@ -224,6 +233,12 @@ func generateKeycloak(u UI, o *Options) ([]config.File, error) {
 		return nil, fmt.Errorf("could not tell which image %s is running; re-run `cub server install` first", o.OutDir)
 	}
 	o.Image = priorImage
+	if err := requireSupportedServer(o.Image); err != nil {
+		return nil, err
+	}
+	if err := resolveUIImage(u, o); err != nil {
+		return nil, err
+	}
 
 	opts := o.deploymentOptions()
 	opts.AdminPublicJWK = priorAdminJWK
@@ -267,7 +282,8 @@ func reportKeycloak(u UI, o *Options) error {
 	}
 
 	u.section("Identity provider installed.",
-		"ConfigHub    "+o.APIURL(),
+		"ConfigHub    "+o.UIURL(),
+		"API          "+o.APIURL(),
 		"Keycloak     "+k.PublicURL,
 		"realm        "+k.Realm,
 		"",
@@ -311,6 +327,11 @@ func secretValue(outDir, key string) (string, error) {
 // realm import cannot express. Today that is one mapper; see
 // enableOrganizationIDClaim for why it is not in the imported document.
 func configureRealmClaims(ctx context.Context, o *Options) error {
+	// The StatefulSet being ready says the pod answers inside the cluster. This
+	// dials the host port, which can reset connections for a moment after.
+	if err := waitForURL(ctx, strings.TrimSuffix(o.Keycloak.PublicURL, "/")+"/realms/master", readyTimeout); err != nil {
+		return fmt.Errorf("waiting for Keycloak: %w", err)
+	}
 	admin, err := newKeycloakAdmin(ctx, o)
 	if err != nil {
 		return fmt.Errorf("reaching the Keycloak admin API: %w", err)

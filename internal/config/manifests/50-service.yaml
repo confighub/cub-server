@@ -33,3 +33,19 @@ spec:
     targetPort: 9092
   selector:
     app: confighub
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: confighub-ui
+  namespace: confighub
+  labels:
+    app: confighub-ui
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+  selector:
+    app: confighub-ui

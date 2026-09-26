@@ -76,6 +76,14 @@ const (
 	// within reach of the workload whose identity provider it controls undoes
 	// the reason the server authenticates with a key at all.
 	InKeycloakSecret
+
+	// InUIConfigMap is for values the UI container reads.
+	//
+	// Its own ConfigMap rather than a share of the server's, because each
+	// Deployment restarts on a hash of what it reads: a value the UI alone reads
+	// should restart the UI and leave the server running. None of it is secret;
+	// it ends up in a file every browser downloads.
+	InUIConfigMap
 )
 
 // Var is one environment variable the server reads.

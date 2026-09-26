@@ -37,6 +37,9 @@ func OpenKeycloak(ctx context.Context, out io.Writer, o *Options, printURL, prin
 	if err := requireKeycloakInstalled(o); err != nil {
 		return err
 	}
+	if err := requireKindClusterExists(o); err != nil {
+		return err
+	}
 
 	url, err := keycloakConsoleURL(o)
 	if err != nil {
@@ -82,6 +85,26 @@ func requireKeycloakInstalled(o *Options) error {
 				o.OutDir, outDirFlag(o))
 		}
 		return err
+	}
+	return nil
+}
+
+// requireKindClusterExists refuses to open a console from a record whose
+// cluster is gone. The out-dir outlives its cluster when the cluster is deleted
+// by hand, and its address may since belong to something else entirely.
+func requireKindClusterExists(o *Options) error {
+	if o.Target != TargetKind {
+		return nil
+	}
+	exists, err := kindClusterExists(o.ClusterName)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf(
+			"the kind cluster %q that %s was installed into does not exist any more.\n"+
+				"    To open a different instance, pass its --cluster-name or --out-dir",
+			o.ClusterName, o.OutDir)
 	}
 	return nil
 }

@@ -56,6 +56,14 @@ type Options struct {
 	// Image is the server image, tag included.
 	Image string
 
+	// UIImage is the web UI's image, tag included. The UI is released with the
+	// server under the same version, so the two are chosen together.
+	UIImage string
+
+	// APIURL is where a browser reaches the API. The UI is served from its own
+	// origin and calls the API from the browser, so it has to be told.
+	APIURL string
+
 	// Host is the external hostname. Only meaningful with an ingress; it also
 	// becomes the redirect and audience values if an IdP is ever configured.
 	Host string
@@ -101,6 +109,9 @@ type Options struct {
 	// even when the API is a NodePort, since the registry is only needed from
 	// outside the cluster for release publishing.
 	OCINodePort int
+
+	// UINodePort does the same for the web UI. Zero leaves it ClusterIP.
+	UINodePort int
 
 	// Keycloak is the bundled identity provider, or nil for an instance whose
 	// only identity is the bootstrap administrator's key. Nil is the first
@@ -163,14 +174,22 @@ func (o *Options) Validate() error {
 	// Kubernetes only allocates NodePorts from a fixed range, and a value
 	// outside it is rejected by the API server with a message about the range
 	// rather than about the flag that produced it.
-	for name, port := range map[string]int{"--node-port": o.APINodePort, "--oci-node-port": o.OCINodePort} {
-		if port != 0 && (port < 30000 || port > 32767) {
+	ports := map[string]int{"--node-port": o.APINodePort, "--oci-node-port": o.OCINodePort, "--ui-node-port": o.UINodePort}
+	seen := map[int]string{}
+	for _, name := range []string{"--node-port", "--oci-node-port", "--ui-node-port"} {
+		port := ports[name]
+		if port == 0 {
+			continue
+		}
+		if port < 30000 || port > 32767 {
 			return fmt.Errorf("%s %d is outside the NodePort range 30000-32767", name, port)
 		}
+		if other, ok := seen[port]; ok {
+			return fmt.Errorf("%s and %s cannot be the same port", other, name)
+		}
+		seen[port] = name
 	}
-	if o.OCINodePort != 0 && o.OCINodePort == o.APINodePort {
-		return fmt.Errorf("--node-port and --oci-node-port cannot be the same port")
-	}
+
 	if o.Ingress == IngressTraefik && o.APINodePort != 0 {
 		return fmt.Errorf("--ingress=traefik routes through the ingress controller; --node-port would be a second, unrouted way in")
 	}
@@ -183,8 +202,8 @@ func (o *Options) Validate() error {
 		if err := o.Keycloak.Validate(); err != nil {
 			return err
 		}
-		if o.Keycloak.NodePort != 0 && (o.Keycloak.NodePort == o.APINodePort || o.Keycloak.NodePort == o.OCINodePort) {
-			return fmt.Errorf("--keycloak-node-port %d is already the API or registry port", o.Keycloak.NodePort)
+		if name, ok := seen[o.Keycloak.NodePort]; ok && o.Keycloak.NodePort != 0 {
+			return fmt.Errorf("--keycloak-node-port %d is already %s", o.Keycloak.NodePort, name)
 		}
 	}
 	return nil

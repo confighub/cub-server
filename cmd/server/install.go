@@ -68,11 +68,13 @@ func init() {
 
 	f.StringVar(&installOpts.Namespace, "namespace", "", "Namespace to install into (default "+install.DefaultNamespace+")")
 	f.StringVar(&installOpts.Image, "image", "", "Server image, tag included (default: the newest released version, resolved from the registry)")
+	f.StringVar(&installOpts.UIImage, "ui-image", "", "Web UI image, tag included (default: the UI release matching the server's version)")
 
 	f.StringVar(&installOpts.Database, "database", "", "internal (bundled Postgres) or external (default internal)")
 	f.StringVar(&installOpts.DatabaseURL, "database-url", "", "Connection string, with --database=external")
 
 	f.IntVar(&installOpts.APINodePort, "node-port", 0, fmt.Sprintf("Host port the API answers on (default %d)", install.DefaultAPINodePort))
+	f.IntVar(&installOpts.UINodePort, "ui-node-port", 0, fmt.Sprintf("Host port the web UI answers on (default %d)", install.DefaultUINodePort))
 	f.IntVar(&installOpts.OCINodePort, "oci-node-port", 0, fmt.Sprintf("Host port the OCI registry answers on (default %d)", install.DefaultOCINodePort))
 	// Published now even though nothing is deployed behind it, because kind can
 	// only publish a port when it creates the node. See internal/install/kind.go.

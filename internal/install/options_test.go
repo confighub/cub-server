@@ -142,6 +142,7 @@ func TestReadPriorRoundTripsGeneratedValues(t *testing.T) {
 
 	opts := config.Options{Namespace: "confighub", APINodePort: 32180}
 	opts.Image = "ghcr.io/confighubai/confighub:test"
+	opts.UIImage = "ghcr.io/confighub/ui:test"
 	opts.Defaults()
 	surface, err := config.Build(opts, nil)
 	if err != nil {

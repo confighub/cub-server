@@ -57,7 +57,7 @@ const (
 	DefaultKeycloakClientID       = "confighub"
 	DefaultKeycloakDeviceClientID = "cub"
 
-	// DefaultKeycloakUIClientID is the client the embedded UI runs as.
+	// DefaultKeycloakUIClientID is the client the UI runs as.
 	//
 	// Its own client rather than the server's: the UI is a browser app and can
 	// hold no secret, so it is public and secured by PKCE and an exact redirect
@@ -94,17 +94,13 @@ type Keycloak struct {
 	// token it mints.
 	PublicURL string
 
-	// RedirectURI is where Keycloak sends the browser back, which is the
-	// ConfigHub UI's callback.
-	RedirectURI string
-
 	Realm          string
 	ClientID       string
 	DeviceClientID string
 
-	// UIClientID is the public client the embedded UI authenticates as, and
-	// UIRedirectURI is the one address Keycloak will return to -- the instance's
-	// own origin, because the server serves the UI.
+	// UIClientID is the public client the UI authenticates as, and
+	// UIRedirectURI is the one address Keycloak will return to -- the UI
+	// container's origin.
 	UIClientID    string
 	UIRedirectURI string
 
@@ -156,11 +152,8 @@ func (k *Keycloak) Validate() error {
 	if k.PublicURL == "" {
 		return fmt.Errorf("the browser-facing Keycloak URL is required: it is the issuer of every token")
 	}
-	if k.RedirectURI == "" {
-		return fmt.Errorf("the redirect URI is required: it is where Keycloak sends the browser back")
-	}
 	if k.UIRedirectURI == "" {
-		return fmt.Errorf("the UI redirect URI is required: it is the instance's own origin, where a browser lands after signing in")
+		return fmt.Errorf("the UI redirect URI is required: it is the UI's origin, where a browser lands after signing in")
 	}
 	if k.NodePort != 0 && (k.NodePort < 30000 || k.NodePort > 32767) {
 		return fmt.Errorf("--keycloak-node-port %d is outside the NodePort range 30000-32767", k.NodePort)

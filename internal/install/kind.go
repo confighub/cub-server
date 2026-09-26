@@ -45,6 +45,9 @@ nodes:
   - containerPort: %d
     hostPort: %d
     protocol: TCP
+  - containerPort: %d
+    hostPort: %d
+    protocol: TCP
 `
 
 // kindProvider talks to Docker.
@@ -125,6 +128,7 @@ func createKindCluster(u UI, o *Options) (string, error) {
 		o.APINodePort, o.APINodePort,
 		o.OCINodePort, o.OCINodePort,
 		o.KeycloakNodePort, o.KeycloakNodePort,
+		o.UINodePort, o.UINodePort,
 	)
 	// Written out as well as passed in. It is the record of how the cluster was
 	// created, next to everything else this install produced.
@@ -136,8 +140,8 @@ func createKindCluster(u UI, o *Options) (string, error) {
 	}
 
 	u.detail("creating kind cluster %q (this takes a minute)", o.ClusterName)
-	u.detail("publishing host ports %d (API), %d (OCI), %d (reserved for Keycloak)",
-		o.APINodePort, o.OCINodePort, o.KeycloakNodePort)
+	u.detail("publishing host ports %d (API), %d (UI), %d (OCI), %d (reserved for Keycloak)",
+		o.APINodePort, o.UINodePort, o.OCINodePort, o.KeycloakNodePort)
 
 	if err := provider.Create(o.ClusterName,
 		cluster.CreateWithRawConfig([]byte(raw)),

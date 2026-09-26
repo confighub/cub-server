@@ -91,6 +91,16 @@ func login(ctx context.Context, cub, serverURL, keyName string) error {
 	return err
 }
 
+// pointContextAtUI records where the UI is on the context login created, so
+// `cub auth browser-session` opens the UI container rather than the server.
+//
+// The server still serves a copy of the UI at its own address, which is why
+// nothing fails without this: it opens the wrong one.
+func pointContextAtUI(ctx context.Context, cub, contextName, uiURL string) error {
+	_, err := runCub(ctx, cub, "context", "set", contextName, "--ui-url="+uiURL)
+	return err
+}
+
 // verify makes one authenticated call, so that "installed" means "answered a
 // real request" rather than "the pod is running".
 func verify(ctx context.Context, cub string) error {

@@ -137,6 +137,30 @@ func renderDeployment(opts Options, configHash string) ([]byte, error) {
 	return docs.Bytes(), nil
 }
 
+// renderUI produces the UI's ConfigMap and Deployment. The Deployment carries a
+// hash of the ConfigMap for the same reason the server's does.
+func renderUI(opts Options, entries []entry) ([]byte, error) {
+	if opts.UIImage == "" {
+		return nil, fmt.Errorf("no UI image: the UI is its own container, and needs one")
+	}
+	docs, err := load("45-ui.yaml")
+	if err != nil {
+		return nil, err
+	}
+	edits := namespaceEdits(docs, opts.Namespace)
+	edits = append(edits,
+		edit{doc: 1, path: "spec.template.metadata.annotations." + segment(configHashAnnotation), value: configHash(entries, nil)},
+		edit{doc: 1, path: "spec.template.spec.containers.0.image", value: opts.UIImage},
+	)
+	if err := apply(docs, edits); err != nil {
+		return nil, err
+	}
+	if err := fillMap(docs[0], "data", entries); err != nil {
+		return nil, err
+	}
+	return docs.Bytes(), nil
+}
+
 // renderServices sets the node ports, or takes them out.
 //
 // The literal manifest is the ClusterIP form, because that is what a real
@@ -149,7 +173,7 @@ func renderServices(opts Options) ([]byte, error) {
 	}
 	edits := namespaceEdits(docs, opts.Namespace)
 
-	for i, port := range []int{opts.APINodePort, opts.OCINodePort} {
+	for i, port := range []int{opts.APINodePort, opts.OCINodePort, opts.UINodePort} {
 		if port == 0 {
 			continue
 		}
@@ -197,6 +221,7 @@ func Render(s *Surface, opts Options) ([]File, error) {
 	configMap := entries(s.ConfigMapVars())
 	secret := entries(s.SecretVars())
 	hash := configHash(configMap, secret)
+	uiConfigMap := entries(s.UIConfigMapVars())
 
 	type step struct {
 		path      string
@@ -229,6 +254,7 @@ func Render(s *Surface, opts Options) ([]File, error) {
 	}
 	steps = append(steps,
 		step{path: ConfigDir + "/40-deployment.yaml", render: func() ([]byte, error) { return renderDeployment(opts, hash) }},
+		step{path: ConfigDir + "/45-ui.yaml", render: func() ([]byte, error) { return renderUI(opts, uiConfigMap) }},
 		step{path: ConfigDir + "/50-service.yaml", render: func() ([]byte, error) { return renderServices(opts) }},
 	)
 	if opts.Ingress == IngressTraefik {

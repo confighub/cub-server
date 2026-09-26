@@ -155,3 +155,56 @@ func TestNoPreviousRenderIsNotAnError(t *testing.T) {
 		t.Error("ports left unset")
 	}
 }
+
+// The UI's port is read back from its Service like the API's, and is not
+// mistaken for the port reserved for an identity provider -- which is found by
+// elimination, so it has to eliminate the UI's as well.
+func TestUIPortComesFromThePreviousRender(t *testing.T) {
+	dir := t.TempDir()
+	writeRender(t, dir, 32280, 32281, 32282)
+
+	svc := filepath.Join(dir, config.ConfigDir, "50-service.yaml")
+	content, err := os.ReadFile(svc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content = append(content, []byte(`---
+apiVersion: v1
+kind: Service
+metadata:
+  name: confighub-ui
+spec:
+  type: NodePort
+  ports:
+  - port: 8080
+    nodePort: 32283
+`)...)
+	if err := os.WriteFile(svc, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The UI's mapping sits before the reserved one, so a first-match that
+	// only skipped the API and registry would pick the UI's.
+	cluster := `kind: Cluster
+nodes:
+- role: control-plane
+  extraPortMappings:
+  - {containerPort: 32280, hostPort: 32280}
+  - {containerPort: 32281, hostPort: 32281}
+  - {containerPort: 32283, hostPort: 32283}
+  - {containerPort: 32282, hostPort: 32282}
+`
+	if err := os.WriteFile(filepath.Join(dir, "kind-cluster.yaml"), []byte(cluster), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	o := &Options{OutDir: dir}
+	if err := o.resolvePorts(); err != nil {
+		t.Fatal(err)
+	}
+	if o.UINodePort != 32283 {
+		t.Errorf("UI port is %d, want the rendered 32283", o.UINodePort)
+	}
+	if o.KeycloakNodePort != 32282 {
+		t.Errorf("Keycloak port is %d, want the reserved 32282", o.KeycloakNodePort)
+	}
+}
