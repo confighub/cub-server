@@ -38,7 +38,7 @@ const (
 	portRangeHigh = 32767
 )
 
-// resolvePorts settles the three host ports for this instance.
+// resolvePorts settles the host ports for this instance.
 func (o *Options) resolvePorts() error {
 	if err := o.adoptPortsFromPreviousRender(); err != nil {
 		return err
@@ -48,7 +48,7 @@ func (o *Options) resolvePorts() error {
 	// ours to choose. taken carries the ports already spoken for in this run, so
 	// two of them cannot land on the same number.
 	taken := map[int]bool{}
-	for _, port := range []int{o.APINodePort, o.OCINodePort, o.KeycloakNodePort} {
+	for _, port := range []int{o.APINodePort, o.OCINodePort, o.KeycloakNodePort, o.UINodePort} {
 		if port != 0 {
 			taken[port] = true
 		}
@@ -62,6 +62,7 @@ func (o *Options) resolvePorts() error {
 		{&o.APINodePort, DefaultAPINodePort, "the API"},
 		{&o.OCINodePort, DefaultOCINodePort, "the OCI registry"},
 		{&o.KeycloakNodePort, DefaultKeycloakNodePort, "an identity provider"},
+		{&o.UINodePort, DefaultUINodePort, "the web UI"},
 	} {
 		if *slot.port != 0 {
 			continue
@@ -108,6 +109,12 @@ func (o *Options) adoptPortsFromPreviousRender() error {
 			o.OCINodePort = ports[1]
 		}
 	}
+	// The UI's Service is the third. An instance rendered before the UI was its
+	// own container has none, and gets a port chosen fresh -- which its cluster
+	// does not publish; see requireUIPort.
+	if len(ports) >= 3 && o.UINodePort == 0 {
+		o.UINodePort = ports[2]
+	}
 
 	// The identity provider's port is published whether or not one is installed,
 	// so it is recorded in the cluster definition rather than in a Service.
@@ -120,7 +127,7 @@ func (o *Options) adoptPortsFromPreviousRender() error {
 }
 
 // reservedPortFromClusterDefinition returns the published host port that is
-// neither the API's nor the registry's, or zero when there is no definition to
+// not the API's, the registry's or the UI's, or zero when there is no definition to
 // read.
 //
 // Identified by elimination rather than by position, so a reordered definition
@@ -141,7 +148,7 @@ func reservedPortFromClusterDefinition(o *Options) int {
 		return 0
 	}
 	for _, mapping := range cluster.Nodes[0].ExtraPortMappings {
-		if mapping.HostPort != o.APINodePort && mapping.HostPort != o.OCINodePort {
+		if mapping.HostPort != o.APINodePort && mapping.HostPort != o.OCINodePort && mapping.HostPort != o.UINodePort {
 			return mapping.HostPort
 		}
 	}

@@ -97,3 +97,30 @@ func TestDifferingKeysComparesOnlyWhatBothSidesHold(t *testing.T) {
 		t.Errorf("differingKeys = %v, want %v", got, want)
 	}
 }
+
+// A cluster created before the UI was its own container publishes three ports,
+// and kind cannot add a fourth. Reusing it would deploy a UI nothing can reach.
+func TestAClusterWithoutAUIPortIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	old := `kind: Cluster
+name: confighub
+nodes:
+- role: control-plane
+  extraPortMappings:
+  - {containerPort: 32180, hostPort: 32180}
+  - {containerPort: 32181, hostPort: 32181}
+  - {containerPort: 32182, hostPort: 32182}
+`
+	if err := os.WriteFile(filepath.Join(dir, "kind-cluster.yaml"), []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o := &Options{OutDir: dir, ClusterName: "confighub", UINodePort: 32183}
+	if err := requireUIPort(o); err == nil || !strings.Contains(err.Error(), "recreated") {
+		t.Fatalf("want a refusal saying to recreate, got %v", err)
+	}
+
+	o.UINodePort = 32182
+	if err := requireUIPort(o); err != nil {
+		t.Errorf("a published port was refused: %v", err)
+	}
+}

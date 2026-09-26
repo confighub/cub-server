@@ -77,9 +77,15 @@ func (k kubeEnv) waitForRollout(ctx context.Context, namespace, kind, name strin
 // offers. Waiting on it therefore confirms the exact thing the next step
 // depends on, rather than something correlated with it.
 func waitForAPI(ctx context.Context, baseURL string, timeout time.Duration) error {
+	return waitForURL(ctx, baseURL+"/api/info", timeout)
+}
+
+// waitForURL polls until the URL answers 200 from here -- through the host port,
+// which can lag the pod's own readiness by a moment while the NodePort's route
+// catches up.
+func waitForURL(ctx context.Context, url string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	client := &http.Client{Timeout: 5 * time.Second}
-	url := baseURL + "/api/info"
 
 	var lastErr error
 	for time.Now().Before(deadline) {
@@ -108,5 +114,5 @@ func waitForAPI(ctx context.Context, baseURL string, timeout time.Duration) erro
 	if lastErr == nil {
 		lastErr = fmt.Errorf("timed out")
 	}
-	return fmt.Errorf("the server did not become ready at %s within %s: %w", baseURL, timeout, lastErr)
+	return fmt.Errorf("%s did not answer within %s: %w", url, timeout, lastErr)
 }

@@ -9,8 +9,7 @@ import (
 func testKeycloak() *Keycloak {
 	k := &Keycloak{
 		PublicURL:     "http://localhost:32182",
-		RedirectURI:   "http://localhost:32180/auth/callback",
-		UIRedirectURI: "http://localhost:32180/",
+		UIRedirectURI: "http://localhost:32183/",
 	}
 	k.Defaults()
 	return k
@@ -98,8 +97,10 @@ func TestRealmCarriesTheClientKey(t *testing.T) {
 		t.Fatal("the realm carries the PRIVATE key: Keycloak must only ever hold the public half")
 	}
 
-	if want := "http://localhost:32180/*"; len(server.RedirectURIs) != 1 || server.RedirectURIs[0] != want {
-		t.Errorf("redirect URIs are %v, want [%s]", server.RedirectURIs, want)
+	// The server signs no one in through a browser. A redirect URI on its
+	// client would be a way to have a code sent somewhere the server is not.
+	if len(server.RedirectURIs) != 0 {
+		t.Errorf("the server's client has redirect URIs %v; it runs no browser flow", server.RedirectURIs)
 	}
 
 	cli := realm.Clients[1]
@@ -117,7 +118,7 @@ func TestRealmCarriesTheClientKey(t *testing.T) {
 	if ui.Attributes["pkce.code.challenge.method"] != "S256" {
 		t.Errorf("the UI's client enforces PKCE %q, want S256", ui.Attributes["pkce.code.challenge.method"])
 	}
-	if want := "http://localhost:32180/"; len(ui.RedirectURIs) != 1 || ui.RedirectURIs[0] != want {
+	if want := "http://localhost:32183/"; len(ui.RedirectURIs) != 1 || ui.RedirectURIs[0] != want {
 		t.Errorf("the UI's redirect URIs are %v, want exactly [%s]", ui.RedirectURIs, want)
 	}
 }
@@ -203,17 +204,17 @@ func TestJSONEditChecksPaths(t *testing.T) {
 }
 
 // An instance with no identity provider must emit none of these: the server
-// treats a realm, auth URL and redirect URI as all-or-nothing and refuses to
+// treats a realm and auth URL as all-or-nothing and refuses to
 // start on a partial set.
 func TestKeycloakVarsOnlyWhenConfigured(t *testing.T) {
 	keycloakNames := []string{
 		"KEYCLOAK_REALM", "KEYCLOAK_AUTH_URL", "KEYCLOAK_INTERNAL_URL",
-		"KEYCLOAK_REDIRECT_URI", "KEYCLOAK_CLIENT_ID", "KEYCLOAK_DEVICE_CLIENT_ID",
-		"CONFIGHUB_UI_OAUTH_CLIENT_ID", "CONFIGHUB_IDP_ISSUER", "CONFIGHUB_IDP_AUDIENCE",
+		"KEYCLOAK_CLIENT_ID", "KEYCLOAK_DEVICE_CLIENT_ID",
+		"CONFIGHUB_UI_OAUTH_CLIENT_ID", "CONFIGHUB_AUTH_ISSUER", "CONFIGHUB_TOKEN_EXCHANGE_AUDIENCE",
 		KeycloakClientKeyEnv,
 	}
 
-	without := Options{Namespace: "confighub", Image: "img"}
+	without := Options{Namespace: "confighub", Image: "img", UIImage: "ui"}
 	without.Defaults()
 	s, err := Build(without, nil)
 	if err != nil {
@@ -225,7 +226,7 @@ func TestKeycloakVarsOnlyWhenConfigured(t *testing.T) {
 		}
 	}
 
-	with := Options{Namespace: "confighub", Image: "img", Keycloak: testKeycloak()}
+	with := Options{Namespace: "confighub", Image: "img", UIImage: "ui", Keycloak: testKeycloak()}
 	with.Defaults()
 	s, err = Build(with, nil)
 	if err != nil {
@@ -248,13 +249,13 @@ func TestKeycloakVarsOnlyWhenConfigured(t *testing.T) {
 
 	// The issuer is the browser's address, never the dialed one: it is what
 	// tokens name, and a token whose issuer does not match is rejected.
-	if want := "http://localhost:32182/realms/confighub"; s.Get("CONFIGHUB_IDP_ISSUER") != want {
-		t.Errorf("issuer is %q, want %q", s.Get("CONFIGHUB_IDP_ISSUER"), want)
+	if want := "http://localhost:32182/realms/confighub"; s.Get("CONFIGHUB_AUTH_ISSUER") != want {
+		t.Errorf("issuer is %q, want %q", s.Get("CONFIGHUB_AUTH_ISSUER"), want)
 	}
 	// The audience the server pins has to be the one the UI client stamps, or
 	// every exchange fails on the audience check.
-	if s.Get("CONFIGHUB_IDP_AUDIENCE") != with.Keycloak.Audience() {
-		t.Errorf("audience is %q, want %q", s.Get("CONFIGHUB_IDP_AUDIENCE"), with.Keycloak.Audience())
+	if s.Get("CONFIGHUB_TOKEN_EXCHANGE_AUDIENCE") != with.Keycloak.Audience() {
+		t.Errorf("audience is %q, want %q", s.Get("CONFIGHUB_TOKEN_EXCHANGE_AUDIENCE"), with.Keycloak.Audience())
 	}
 }
 
@@ -266,7 +267,7 @@ func TestKeycloakVarsOnlyWhenConfigured(t *testing.T) {
 // that governs the server -- so putting it there would hand a compromised server
 // pod the identity provider it authenticates against.
 func TestKeycloakAdminPasswordIsNotInTheServersSecret(t *testing.T) {
-	opts := Options{Namespace: "confighub", Image: "img", Keycloak: testKeycloak()}
+	opts := Options{Namespace: "confighub", Image: "img", UIImage: "ui", Keycloak: testKeycloak()}
 	opts.Defaults()
 	s, err := Build(opts, nil)
 	if err != nil {
@@ -307,7 +308,7 @@ func TestKeycloakAdminPasswordIsNotInTheServersSecret(t *testing.T) {
 // Re-running must not rotate the client key: Keycloak holds the public half, and
 // a new private half is a server that cannot authenticate to its own realm.
 func TestClientKeyIsPreservedAcrossRuns(t *testing.T) {
-	opts := Options{Namespace: "confighub", Image: "img", Keycloak: testKeycloak()}
+	opts := Options{Namespace: "confighub", Image: "img", UIImage: "ui", Keycloak: testKeycloak()}
 	opts.Defaults()
 
 	first, err := Build(opts, nil)

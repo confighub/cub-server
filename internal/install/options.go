@@ -39,6 +39,10 @@ const (
 	// identity provider is ever added, because kind cannot publish it later.
 	DefaultKeycloakNodePort = 32182
 
+	// DefaultUINodePort is where a browser reaches the web UI. The UI is its own
+	// container, and without a proxy in front it has its own origin.
+	DefaultUINodePort = 32183
+
 	// DefaultAdminKeyName is the alias the administrator's private key is stored
 	// under in cub's key directory, where `cub auth login --private-key` finds
 	// it by that name.
@@ -56,6 +60,10 @@ type Options struct {
 	Namespace string
 	Image     string
 
+	// UIImage is the web UI's image. Empty means the release matching Image;
+	// see resolveUIImage.
+	UIImage string
+
 	Database    string // "internal" or "external"
 	DatabaseURL string
 
@@ -65,6 +73,9 @@ type Options struct {
 	// KeycloakNodePort is where the browser reaches the bundled identity
 	// provider, reserved at cluster creation. See kind.go.
 	KeycloakNodePort int
+
+	// UINodePort is where the browser reaches the web UI.
+	UINodePort int
 
 	// Keycloak is set by `cub server keycloak install` and nil otherwise. It is
 	// the second chapter of an install, not a variation on the first: the
@@ -214,11 +225,14 @@ func (o *Options) deploymentOptions() config.Options {
 	opts := config.Options{
 		Namespace:   o.Namespace,
 		Image:       o.Image,
+		UIImage:     o.UIImage,
+		APIURL:      o.APIURL(),
 		Database:    config.DatabaseMode(o.Database),
 		DatabaseURL: o.DatabaseURL,
 		Ingress:     config.IngressNone,
 		APINodePort: o.APINodePort,
 		OCINodePort: o.OCINodePort,
+		UINodePort:  o.UINodePort,
 		Keycloak:    o.Keycloak,
 	}
 	opts.Defaults()
@@ -231,4 +245,9 @@ func (o *Options) deploymentOptions() config.Options {
 // the terminal closing -- not a port-forward that has to stay running.
 func (o *Options) APIURL() string {
 	return fmt.Sprintf("http://localhost:%d", o.APINodePort)
+}
+
+// UIURL is where a browser opens the web UI.
+func (o *Options) UIURL() string {
+	return fmt.Sprintf("http://localhost:%d", o.UINodePort)
 }

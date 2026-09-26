@@ -172,13 +172,13 @@ func pullToken(ctx context.Context, registry, repo string) (string, error) {
 func resolveImage(u UI, o *Options, priorImage string) error {
 	switch {
 	case o.Image != "":
-		return nil
+		return requireSupportedServer(o.Image)
 
 	case priorImage != "":
 		o.Image = priorImage
 		u.detail("keeping the image this instance is on (%s)", priorImage)
 		u.detail("pass --image to move it")
-		return nil
+		return requireSupportedServer(o.Image)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

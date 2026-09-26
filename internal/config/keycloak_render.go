@@ -87,11 +87,6 @@ func renderRealm(k *Keycloak, clientJWKS string) ([]byte, error) {
 		return nil, fmt.Errorf("parsing the realm: %w", err)
 	}
 
-	// The browser origin Keycloak will redirect back to and accept requests
-	// from. Derived from the redirect URI so the two cannot name different
-	// hosts, which presents as a login that ends on an error page.
-	origin := strings.TrimSuffix(k.RedirectURI, "/auth/callback")
-
 	edits := []struct {
 		path  string
 		value any
@@ -102,8 +97,6 @@ func renderRealm(k *Keycloak, clientJWKS string) ([]byte, error) {
 		{"organizations.0.domains.0.name", k.OrgDomain},
 
 		{"clients.0.clientId", k.ClientID},
-		{"clients.0.redirectUris", []any{origin + "/*"}},
-		{"clients.0.webOrigins", []any{origin}},
 		// The public half of the key the server signs with. Everything else
 		// about this install is recoverable; a realm importing the wrong key
 		// here is an instance that cannot talk to its own identity provider.
@@ -111,9 +104,9 @@ func renderRealm(k *Keycloak, clientJWKS string) ([]byte, error) {
 
 		{"clients.1.clientId", k.DeviceClientID},
 
-		// The UI's own client. Its redirect URI is exact -- the instance's origin,
-		// which is where the server serves the UI -- because a public client is
-		// secured by PKCE and by having nowhere else to send a code. The audience
+		// The UI's own client. Its redirect URI is exact -- the UI's origin --
+		// because a public client is secured by PKCE and by having nowhere else
+		// to send a code. The audience
 		// is what the server pins on a token it will exchange.
 		{"clients.2.clientId", k.UIClientID},
 		{"clients.2.redirectUris", []any{k.UIRedirectURI}},

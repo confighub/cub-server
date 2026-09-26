@@ -43,24 +43,35 @@ You can also log into the Web UI by using the authenticated CLI to start a brows
 cub auth browser-session
 ```
 
+The install records the UI's address on the cub context it signs you in with, so this opens the
+UI container. With a cub older than v0.6.0, set it yourself:
+`cub context set --ui-url=http://localhost:<ui port>`.
+
 ## What it installs
 
 Into a namespace (`confighub` by default):
 
 | | |
 |---|---|
-| ConfigHub | API and UI on a NodePort, OCI registry on another |
+| ConfigHub server | API on a NodePort, OCI registry on another |
+| ConfigHub web UI | its own container (`ghcr.io/confighub/ui`), on a NodePort of its own |
 | PostgreSQL | bundled by default; `--database=external` points at your own |
 | Keycloak | not installed by default — see [Adding people](#adding-people) |
 
-The API is published on a real host port rather than through `kubectl port-forward`, so the URL
-keeps working after you close the terminal.
+The API and the UI are published on real host ports rather than through `kubectl port-forward`,
+so the URLs keep working after you close the terminal. The UI is a static app that calls the API
+from the browser, so the two have different origins: by default the API is on `localhost:32180`
+and the UI on `localhost:32183`.
 
 Ports are chosen for you. kind has to publish them when the node container is created, before
 there is a cluster to ask, so an install picks free ones from the operating system rather than
 insisting on a default — a second instance, or anything else already holding the port, moves it
 along instead of failing. Re-running an install keeps the ports the instance already answers on;
-`--node-port`, `--oci-node-port` and `--keycloak-node-port` override both.
+`--node-port`, `--ui-node-port`, `--oci-node-port` and `--keycloak-node-port` override both.
+
+A cluster created by a version of this plugin from before the UI ran as its own container does
+not publish a port for it, and kind cannot add one. Installing into such a cluster is refused
+with the `uninstall`/`install` pair that recreates it.
 
 ## Adding people
 
@@ -71,8 +82,9 @@ key (located in ~/.confighub/keys). That is enough to evaluate ConfigHub and eno
 cub server keycloak install
 ```
 
-Keycloak is deployed alongside the instance, a realm is imported with the two clients ConfigHub
-needs, and the server is reconfigured and restarted to use it. After installation you can log into keycloak's admin interface with:
+Keycloak is deployed alongside the instance, a realm is imported with the clients ConfigHub
+needs (the server, the CLI, and the web UI), and the server and UI are reconfigured and restarted
+to use it. People then sign in on the UI through Keycloak. After installation you can log into keycloak's admin interface with:
 
 ```sh
 cub server keycloak open
@@ -137,8 +149,12 @@ The version it resolved is written into the generated manifests, not a floating 
 running is answerable, and two people installing at the same moment get the same thing.
 
 ```sh
-cub server install --image ghcr.io/confighubai/confighub:v0.4.20   # pick one
+cub server install --image ghcr.io/confighubai/confighub:v0.6.5   # pick one
 ```
+
+The UI is released with the server under the same version and follows it: server `v0.6.5` gets
+`ghcr.io/confighub/ui:0.6.5`. `--ui-image` names a different one, and is required when `--image`
+is not a released version. The oldest server this plugin installs is v0.6.5.
 
 Re-running an install keeps the version the instance is already on; it resumes rather than
 upgrading. Pass `--image` to move it, which is also how you install without reaching the

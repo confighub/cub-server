@@ -34,6 +34,19 @@ func Run(ctx context.Context, u UI, o *Options) error {
 	if err := refuseIfKeycloakInstalled(o); err != nil {
 		return err
 	}
+	// Before anything is generated, so a cluster that cannot take the UI is
+	// reported without first writing a configuration for it.
+	if o.Target == TargetKind && !o.DryRun {
+		exists, err := kindClusterExists(o.ClusterName)
+		if err != nil {
+			return err
+		}
+		if exists {
+			if err := requireUIPort(o); err != nil {
+				return err
+			}
+		}
+	}
 	if err := preflight(ctx, u, o); err != nil {
 		return err
 	}
@@ -117,6 +130,9 @@ func generate(u UI, o *Options) ([]config.File, string, error) {
 	if err := resolveImage(u, o, priorImage); err != nil {
 		return nil, "", err
 	}
+	if err := resolveUIImage(u, o); err != nil {
+		return nil, "", err
+	}
 
 	opts := o.deploymentOptions()
 	switch {
@@ -177,6 +193,7 @@ func generate(u UI, o *Options) ([]config.File, string, error) {
 	}
 	u.detail("wrote %d files to %s", len(files), o.OutDir)
 	u.detail("image: %s", opts.Image)
+	u.detail("ui image: %s", opts.UIImage)
 
 	return files, keyPath, nil
 }
@@ -400,6 +417,11 @@ func awaitReady(ctx context.Context, u UI, o *Options, kube kubeEnv) error {
 		return err
 	}
 
+	u.detail("web UI...")
+	if err := kube.waitForRollout(ctx, o.Namespace, "deployment", uiDeploymentName, rolloutTimeout); err != nil {
+		return err
+	}
+
 	u.detail("api at %s...", o.APIURL())
 	return waitForAPI(ctx, o.APIURL(), readyTimeout)
 }
@@ -433,6 +455,14 @@ func authenticate(ctx context.Context, u UI, o *Options, keyPath string) error {
 	}
 	if name := activeContextName(); name != "" {
 		u.detail("signed in; cub context %q now points at %s", name, o.APIURL())
+		if err := pointContextAtUI(ctx, cub, name, o.UIURL()); err != nil {
+			// Not fatal: the install and the session are fine, and this cub may
+			// predate --ui-url. Say what to run once it does not.
+			u.warn("could not record the UI address on the context: %v", err)
+			u.detail("run: cub context set %s --ui-url=%s", name, o.UIURL())
+		} else {
+			u.detail("the web UI is at %s", o.UIURL())
+		}
 	} else {
 		u.detail("signed in as the local administrator")
 	}
@@ -441,7 +471,8 @@ func authenticate(ctx context.Context, u UI, o *Options, keyPath string) error {
 
 func reportSuccess(u UI, o *Options, keyPath string, authenticated bool) error {
 	lines := []string{
-		"URL          " + o.APIURL(),
+		"UI           " + o.UIURL(),
+		"API          " + o.APIURL(),
 		"namespace    " + o.Namespace,
 		"config       " + o.OutDir,
 	}
@@ -457,6 +488,7 @@ func reportSuccess(u UI, o *Options, keyPath string, authenticated bool) error {
 		)
 	} else {
 		lines := append([]string{}, manualLoginInstructions(o.APIURL(), o.AdminKeyName)...)
+		lines = append(lines, "cub context set --ui-url="+o.UIURL()+"   # so browser-session opens the UI")
 		u.section("To sign in:", lines...)
 	}
 

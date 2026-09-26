@@ -23,6 +23,9 @@ func (s *Surface) SecretVars() []Var    { return s.byPlacement(InSecret) }
 // KeycloakSecretVars are the values only Keycloak reads. See InKeycloakSecret.
 func (s *Surface) KeycloakSecretVars() []Var { return s.byPlacement(InKeycloakSecret) }
 
+// UIConfigMapVars are the values the UI container reads. See InUIConfigMap.
+func (s *Surface) UIConfigMapVars() []Var { return s.byPlacement(InUIConfigMap) }
+
 func (s *Surface) byPlacement(p Placement) []Var {
 	var out []Var
 	for _, v := range s.Vars {
@@ -136,6 +139,13 @@ func Build(opts Options, prior Preserved) (*Surface, error) {
 		})
 	}
 
+	// Where the UI sends its API calls. The browser makes them, so this is the
+	// address the browser reaches the server on, not a cluster-internal one.
+	add(Var{
+		Name: "CONFIGHUB_URL", Placement: InUIConfigMap, Value: opts.APIURL,
+		Doc: "Where the browser reaches the ConfigHub API. The UI is served from a different origin.",
+	})
+
 	// The bundled identity provider, when there is one. Absent entirely on an
 	// instance whose only identity is the administrator's key: the server treats
 	// a realm, auth URL and redirect URI as all-or-nothing, and half of them is
@@ -154,10 +164,6 @@ func Build(opts Options, prior Preserved) (*Surface, error) {
 			Doc: "Where the server reaches Keycloak. The address above is the browser's and does not resolve in here.",
 		})
 		add(Var{
-			Name: "KEYCLOAK_REDIRECT_URI", Placement: InConfigMap, Value: kc.RedirectURI,
-			Doc: "Where Keycloak sends the browser back after a login.",
-		})
-		add(Var{
 			Name: "KEYCLOAK_CLIENT_ID", Placement: InConfigMap, Value: kc.ClientID,
 			Doc: "The client the server authenticates as.",
 		})
@@ -166,22 +172,24 @@ func Build(opts Options, prior Preserved) (*Surface, error) {
 			Doc: "The public client cub authenticates through. Public because it runs on the user's machine.",
 		})
 
-		// What the embedded UI needs to sign in as its own OAuth client.
+		// What lets the UI sign in as its own OAuth client.
 		//
 		// The three go together and mean one thing: the browser runs OIDC against
 		// the issuer, gets a token stamped with the audience, and exchanges it at
-		// the server for a ConfigHub one. Without them the server serves no
-		// /config.json and the UI has no way in.
+		// the server for a ConfigHub one. The client id is the UI's to know, so
+		// it goes to the UI container; the issuer and audience are what the
+		// server checks, so they go to the server, which advertises them in
+		// /api/info.
 		add(Var{
-			Name: "CONFIGHUB_UI_OAUTH_CLIENT_ID", Placement: InConfigMap, Value: kc.UIClientID,
-			Doc: "The client the UI authenticates as. Its presence is what puts the UI in bearer mode.",
+			Name: "CONFIGHUB_UI_OAUTH_CLIENT_ID", Placement: InUIConfigMap, Value: kc.UIClientID,
+			Doc: "The client the UI signs in as. Without it the UI can only be entered with `cub auth browser-session`.",
 		})
 		add(Var{
-			Name: "CONFIGHUB_IDP_ISSUER", Placement: InConfigMap, Value: kc.Issuer(),
+			Name: "CONFIGHUB_AUTH_ISSUER", Placement: InConfigMap, Value: kc.Issuer(),
 			Doc: "Realm the UI runs OIDC against, and the issuer of the tokens the server exchanges.",
 		})
 		add(Var{
-			Name: "CONFIGHUB_IDP_AUDIENCE", Placement: InConfigMap, Value: kc.Audience(),
+			Name: "CONFIGHUB_TOKEN_EXCHANGE_AUDIENCE", Placement: InConfigMap, Value: kc.Audience(),
 			Doc: "Audience this instance requires in a token it will exchange; the UI client emits it.",
 		})
 

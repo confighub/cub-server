@@ -107,6 +107,9 @@ func existingCluster(u UI, o *Options) (kubeEnv, error) {
 				"      cub server install%s",
 			o.ClusterName, o.OutDir, outDirFlag(o), outDirFlag(o))
 	}
+	if err := requireUIPort(o); err != nil {
+		return kubeEnv{}, err
+	}
 	kubeconfig, err := kubeconfigPath(o.OutDir)
 	if err != nil {
 		return kubeEnv{}, err
