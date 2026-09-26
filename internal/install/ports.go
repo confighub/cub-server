@@ -109,9 +109,7 @@ func (o *Options) adoptPortsFromPreviousRender() error {
 			o.OCINodePort = ports[1]
 		}
 	}
-	// The UI's Service is the third. An instance rendered before the UI was its
-	// own container has none, and gets a port chosen fresh -- which its cluster
-	// does not publish; see requireUIPort.
+	// The UI's Service is the third.
 	if len(ports) >= 3 && o.UINodePort == 0 {
 		o.UINodePort = ports[2]
 	}

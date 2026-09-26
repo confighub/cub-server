@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"gopkg.in/yaml.v3"
 	"sigs.k8s.io/kind/pkg/cluster"
 	kindlog "sigs.k8s.io/kind/pkg/log"
 )
@@ -116,9 +115,6 @@ func createKindCluster(u UI, o *Options) (string, error) {
 		return "", err
 	}
 	if exists {
-		if err := requireUIPort(o); err != nil {
-			return "", err
-		}
 		u.detail("cluster %q already exists, reusing it", o.ClusterName)
 		// Re-export: the file may be missing even though the cluster is not.
 		if err := provider.ExportKubeConfig(o.ClusterName, kubeconfig, false); err != nil {
@@ -165,40 +161,4 @@ func deleteKindCluster(name, kubeconfig string) error {
 		return fmt.Errorf("deleting the kind cluster %q: %w", name, err)
 	}
 	return nil
-}
-
-// requireUIPort refuses a cluster that does not publish the UI's port.
-//
-// Clusters created before the UI was its own container publish three ports, and
-// kind cannot add a fourth to a running cluster. Deploying anyway would leave a
-// UI nothing outside the cluster can reach, so this says to recreate instead.
-// Judged from the cluster definition the install recorded; a cluster with no
-// record is let through, since there is nothing to judge from.
-func requireUIPort(o *Options) error {
-	content, err := os.ReadFile(filepath.Join(o.OutDir, "kind-cluster.yaml"))
-	if err != nil {
-		return nil
-	}
-	var cluster struct {
-		Nodes []struct {
-			ExtraPortMappings []struct {
-				HostPort int `yaml:"hostPort"`
-			} `yaml:"extraPortMappings"`
-		} `yaml:"nodes"`
-	}
-	if yaml.Unmarshal(content, &cluster) != nil || len(cluster.Nodes) == 0 {
-		return nil
-	}
-	for _, mapping := range cluster.Nodes[0].ExtraPortMappings {
-		if mapping.HostPort == o.UINodePort {
-			return nil
-		}
-	}
-	return fmt.Errorf(
-		"the kind cluster %q was created before the web UI ran as its own container, and does not publish a port for it.\n"+
-			"    kind cannot add a port to a cluster that exists, so the instance has to be recreated:\n"+
-			"      cub server uninstall%s\n"+
-			"      cub server install%s\n"+
-			"    Uninstalling deletes the cluster and its data",
-		o.ClusterName, outDirFlag(o), outDirFlag(o))
 }

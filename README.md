@@ -69,10 +69,6 @@ insisting on a default — a second instance, or anything else already holding t
 along instead of failing. Re-running an install keeps the ports the instance already answers on;
 `--node-port`, `--ui-node-port`, `--oci-node-port` and `--keycloak-node-port` override both.
 
-A cluster created by a version of this plugin from before the UI ran as its own container does
-not publish a port for it, and kind cannot add one. Installing into such a cluster is refused
-with the `uninstall`/`install` pair that recreates it.
-
 ## Adding people
 
 `cub server install` leaves you with an instance and one administrator, who signs in with a

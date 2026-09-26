@@ -34,19 +34,7 @@ func Run(ctx context.Context, u UI, o *Options) error {
 	if err := refuseIfKeycloakInstalled(o); err != nil {
 		return err
 	}
-	// Before anything is generated, so a cluster that cannot take the UI is
-	// reported without first writing a configuration for it.
-	if o.Target == TargetKind && !o.DryRun {
-		exists, err := kindClusterExists(o.ClusterName)
-		if err != nil {
-			return err
-		}
-		if exists {
-			if err := requireUIPort(o); err != nil {
-				return err
-			}
-		}
-	}
+
 	if err := preflight(ctx, u, o); err != nil {
 		return err
 	}
