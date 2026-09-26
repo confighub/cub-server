@@ -97,6 +97,11 @@ type Options struct {
 
 // Defaults fills in what the caller did not set.
 func (o *Options) Defaults() error {
+	// First, while an unset --cluster-name still reads as unset. An out-dir
+	// that records its cluster decides which one it is. See instance.go.
+	if err := o.adoptRecordedCluster(); err != nil {
+		return err
+	}
 	if o.Target == "" {
 		// Which cluster to use follows from whether one was named. A kubeconfig
 		// context names a cluster that exists; nothing named means create one.

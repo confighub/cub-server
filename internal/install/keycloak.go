@@ -58,6 +58,21 @@ func RunKeycloak(ctx context.Context, u UI, o *Options) error {
 		return err
 	}
 
+	// Before anything is generated, so that pointing this at the wrong cluster
+	// changes neither the cluster nor the record. This command adds to an
+	// instance; it must find that instance rather than create a cluster, adopt
+	// one that happens to share its name, or apply over a different one.
+	var kube kubeEnv
+	if !o.DryRun {
+		var err error
+		if kube, err = existingCluster(u, o); err != nil {
+			return err
+		}
+		if err := refuseIfAnotherInstance(ctx, kube, o, true); err != nil {
+			return err
+		}
+	}
+
 	files, err := generateKeycloak(u, o)
 	if err != nil {
 		return err
@@ -70,11 +85,6 @@ func RunKeycloak(ctx context.Context, u UI, o *Options) error {
 			"Re-run without --dry-run to apply this configuration.",
 		)
 		return nil
-	}
-
-	kube, err := provisionCluster(ctx, u, o)
-	if err != nil {
-		return err
 	}
 
 	// In two passes, and the order is the whole point. The server reads its

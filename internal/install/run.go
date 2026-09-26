@@ -57,6 +57,11 @@ func Run(ctx context.Context, u UI, o *Options) error {
 	if err != nil {
 		return err
 	}
+	// A re-run reuses a cluster that already exists, and a context names one
+	// that always does, so what is in it may not be this instance.
+	if err := refuseIfAnotherInstance(ctx, kube, o, false); err != nil {
+		return err
+	}
 
 	if err := applyManifests(ctx, u, o, kube, files, "Installing ConfigHub"); err != nil {
 		return err
