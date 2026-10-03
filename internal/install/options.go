@@ -227,6 +227,7 @@ func (o *Options) deploymentOptions() config.Options {
 		Image:       o.Image,
 		UIImage:     o.UIImage,
 		APIURL:      o.APIURL(),
+		UIURL:       o.UIURL(),
 		Database:    config.DatabaseMode(o.Database),
 		DatabaseURL: o.DatabaseURL,
 		Ingress:     config.IngressNone,

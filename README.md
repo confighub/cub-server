@@ -43,9 +43,8 @@ You can also log into the Web UI by using the authenticated CLI to start a brows
 cub auth browser-session
 ```
 
-The install records the UI's address on the cub context it signs you in with, so this opens the
-UI container. With a cub older than v0.6.0, set it yourself:
-`cub context set --ui-url=http://localhost:<ui port>`.
+The server advertises where its UI is (`UIURL` in `/api/info`, from `CONFIGHUB_UI_URL`), and
+`cub auth login` records it on the context, so this opens the UI container.
 
 ## What it installs
 

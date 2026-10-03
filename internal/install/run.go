@@ -443,14 +443,7 @@ func authenticate(ctx context.Context, u UI, o *Options, keyPath string) error {
 	}
 	if name := activeContextName(); name != "" {
 		u.detail("signed in; cub context %q now points at %s", name, o.APIURL())
-		if err := pointContextAtUI(ctx, cub, name, o.UIURL()); err != nil {
-			// Not fatal: the install and the session are fine, and this cub may
-			// predate --ui-url. Say what to run once it does not.
-			u.warn("could not record the UI address on the context: %v", err)
-			u.detail("run: cub context set %s --ui-url=%s", name, o.UIURL())
-		} else {
-			u.detail("the web UI is at %s", o.UIURL())
-		}
+		u.detail("the web UI is at %s", o.UIURL())
 	} else {
 		u.detail("signed in as the local administrator")
 	}
@@ -476,7 +469,6 @@ func reportSuccess(u UI, o *Options, keyPath string, authenticated bool) error {
 		)
 	} else {
 		lines := append([]string{}, manualLoginInstructions(o.APIURL(), o.AdminKeyName)...)
-		lines = append(lines, "cub context set --ui-url="+o.UIURL()+"   # so browser-session opens the UI")
 		u.section("To sign in:", lines...)
 	}
 
