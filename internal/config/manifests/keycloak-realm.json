@@ -59,7 +59,7 @@
     {
       "clientId": "confighub-ui",
       "name": "ConfigHub UI",
-      "description": "The embedded web UI. Public: it runs in the browser, so PKCE and an exact redirect URI stand in for a secret.",
+      "description": "The web UI. Public: it runs in the browser, so PKCE and an exact redirect URI stand in for a secret.",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": true,

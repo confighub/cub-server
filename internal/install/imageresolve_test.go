@@ -55,11 +55,11 @@ func TestHighestSemverWithNoReleases(t *testing.T) {
 
 // --image is a deliberate choice and is never second-guessed.
 func TestResolveImageKeepsAnExplicitChoice(t *testing.T) {
-	o := &Options{Image: "mirror.internal/confighub:v0.7.0"}
+	o := &Options{Image: "mirror.internal/confighub:v0.9.0"}
 	if err := resolveImage(discardUI(), o, "ghcr.io/confighubai/confighub:v0.8.0"); err != nil {
 		t.Fatal(err)
 	}
-	if o.Image != "mirror.internal/confighub:v0.7.0" {
+	if o.Image != "mirror.internal/confighub:v0.9.0" {
 		t.Errorf("--image was overridden, got %q", o.Image)
 	}
 }
@@ -69,10 +69,10 @@ func TestResolveImageKeepsAnExplicitChoice(t *testing.T) {
 // ask for.
 func TestResolveImageDoesNotUpgradeOnAReRun(t *testing.T) {
 	o := &Options{}
-	if err := resolveImage(discardUI(), o, "ghcr.io/confighubai/confighub:v0.6.5"); err != nil {
+	if err := resolveImage(discardUI(), o, "ghcr.io/confighubai/confighub:v0.8.2"); err != nil {
 		t.Fatal(err)
 	}
-	if o.Image != "ghcr.io/confighubai/confighub:v0.6.5" {
+	if o.Image != "ghcr.io/confighubai/confighub:v0.8.2" {
 		t.Errorf("a re-run changed the image to %q", o.Image)
 	}
 }
@@ -103,12 +103,12 @@ func discardUI() UI { return UI{Out: io.Discard} }
 // starting, and it has no UI release to go with it.
 func TestResolveImageRefusesAServerTooOld(t *testing.T) {
 	for _, tc := range []struct{ explicit, prior string }{
-		{explicit: "ghcr.io/confighubai/confighub:v0.6.4"},
+		{explicit: "ghcr.io/confighubai/confighub:v0.8.1"},
 		{prior: "ghcr.io/confighubai/confighub:v0.4.2"},
 	} {
 		o := &Options{Image: tc.explicit}
 		err := resolveImage(discardUI(), o, tc.prior)
-		if err == nil || !strings.Contains(err.Error(), "v0.6.5") {
+		if err == nil || !strings.Contains(err.Error(), "v0.8.2") {
 			t.Errorf("%+v: want a refusal naming the minimum version, got %v", tc, err)
 		}
 	}
@@ -124,15 +124,15 @@ func TestResolveImageAcceptsAnUnreleasedServer(t *testing.T) {
 
 // The UI is released with the server under the same version, without the "v".
 func TestUIImageFollowsTheServerVersion(t *testing.T) {
-	o := &Options{Image: "ghcr.io/confighubai/confighub:v0.6.5", OutDir: t.TempDir()}
+	o := &Options{Image: "ghcr.io/confighubai/confighub:v0.8.2", OutDir: t.TempDir()}
 	if err := resolveUIImage(discardUI(), o); err != nil {
 		t.Fatal(err)
 	}
-	if want := "ghcr.io/confighub/ui:0.6.5"; o.UIImage != want {
+	if want := "ghcr.io/confighub/ui:0.8.2"; o.UIImage != want {
 		t.Errorf("UI image = %q, want %q", o.UIImage, want)
 	}
 
-	o = &Options{Image: "ghcr.io/confighubai/confighub:v0.6.5", UIImage: "mine/ui:x"}
+	o = &Options{Image: "ghcr.io/confighubai/confighub:v0.8.2", UIImage: "mine/ui:x"}
 	if err := resolveUIImage(discardUI(), o); err != nil || o.UIImage != "mine/ui:x" {
 		t.Errorf("--ui-image was overridden: %q, %v", o.UIImage, err)
 	}

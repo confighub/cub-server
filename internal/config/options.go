@@ -64,6 +64,10 @@ type Options struct {
 	// origin and calls the API from the browser, so it has to be told.
 	APIURL string
 
+	// UIURL is where a browser reaches the UI. The server advertises it, so
+	// clients that start from the API can send people to the UI.
+	UIURL string
+
 	// Host is the external hostname. Only meaningful with an ingress; it also
 	// becomes the redirect and audience values if an IdP is ever configured.
 	Host string

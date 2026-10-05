@@ -43,9 +43,9 @@ You can also log into the Web UI by using the authenticated CLI to start a brows
 cub auth browser-session
 ```
 
-The install records the UI's address on the cub context it signs you in with, so this opens the
-UI container. With a cub older than v0.6.0, set it yourself:
-`cub context set --ui-url=http://localhost:<ui port>`.
+The server advertises where its UI is (`UIURL` in `/api/info`, from `CONFIGHUB_UI_URL`), and
+`cub auth login` records it on the context, so this opens the UI container. That needs cub
+v0.8.2 or newer.
 
 ## What it installs
 
@@ -145,12 +145,12 @@ The version it resolved is written into the generated manifests, not a floating 
 running is answerable, and two people installing at the same moment get the same thing.
 
 ```sh
-cub server install --image ghcr.io/confighubai/confighub:v0.6.5   # pick one
+cub server install --image ghcr.io/confighubai/confighub:v0.8.3   # pick one
 ```
 
-The UI is released with the server under the same version and follows it: server `v0.6.5` gets
-`ghcr.io/confighub/ui:0.6.5`. `--ui-image` names a different one, and is required when `--image`
-is not a released version. The oldest server this plugin installs is v0.6.5.
+The UI is released with the server under the same version and follows it: server `v0.8.3` gets
+`ghcr.io/confighub/ui:0.8.3`. `--ui-image` names a different one, and is required when `--image`
+is not a released version. The oldest server this plugin installs is v0.8.2.
 
 Re-running an install keeps the version the instance is already on; it resumes rather than
 upgrading. Pass `--image` to move it, which is also how you install without reaching the

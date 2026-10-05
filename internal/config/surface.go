@@ -146,6 +146,15 @@ func Build(opts Options, prior Preserved) (*Surface, error) {
 		Doc: "Where the browser reaches the ConfigHub API. The UI is served from a different origin.",
 	})
 
+	// Where the UI is, for the server to advertise in /api/info. `cub auth login`
+	// records it on the context, which is how `cub auth browser-session` knows
+	// to open the UI container rather than the API's address, where no pages
+	// are served.
+	add(Var{
+		Name: "CONFIGHUB_UI_URL", Placement: InConfigMap, Value: opts.UIURL,
+		Doc: "Where the browser reaches the web UI. Advertised in /api/info so clients can link to it.",
+	})
+
 	// The bundled identity provider, when there is one. Absent entirely on an
 	// instance whose only identity is the administrator's key: the server treats
 	// a realm, auth URL and redirect URI as all-or-nothing, and half of them is

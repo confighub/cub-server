@@ -29,7 +29,7 @@ func renderFiles(t *testing.T, opts Options) map[string]string {
 func TestUIValuesGoToTheUIContainer(t *testing.T) {
 	opts := Options{
 		Namespace: "confighub", Image: "img", UIImage: "ghcr.io/confighub/ui:0.6.5",
-		APIURL: "http://localhost:32180", Keycloak: testKeycloak(),
+		APIURL: "http://localhost:32180", UIURL: "http://localhost:32183", Keycloak: testKeycloak(),
 	}
 	opts.Defaults()
 	s, err := Build(opts, nil)
@@ -51,6 +51,13 @@ func TestUIValuesGoToTheUIContainer(t *testing.T) {
 		if in(s.ConfigMapVars(), name) {
 			t.Errorf("%s is in the server's ConfigMap; the server does not need it", name)
 		}
+	}
+	// The server advertises where the UI is; the UI has no use for its own address.
+	if !in(s.ConfigMapVars(), "CONFIGHUB_UI_URL") || in(s.UIConfigMapVars(), "CONFIGHUB_UI_URL") {
+		t.Error("CONFIGHUB_UI_URL belongs in the server's ConfigMap and only there")
+	}
+	if got := s.Get("CONFIGHUB_UI_URL"); got != "http://localhost:32183" {
+		t.Errorf("CONFIGHUB_UI_URL = %q, want the UI's address", got)
 	}
 	for _, name := range []string{"CONFIGHUB_AUTH_ISSUER", "CONFIGHUB_TOKEN_EXCHANGE_AUDIENCE"} {
 		if !in(s.ConfigMapVars(), name) {
