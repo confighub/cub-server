@@ -85,7 +85,7 @@ const (
 	// way the server image is. The server's version is this product's; Keycloak's
 	// is a dependency, and picking up whatever is newest would make an install
 	// depend on a release nobody here has run.
-	DefaultKeycloakImage = "quay.io/keycloak/keycloak:26.1.5"
+	DefaultKeycloakImage = "quay.io/keycloak/keycloak:26.7.3"
 )
 
 // Keycloak describes the bundled identity provider for one instance.

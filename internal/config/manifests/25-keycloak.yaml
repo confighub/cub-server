@@ -52,7 +52,7 @@ spec:
     spec:
       containers:
       - name: keycloak
-        image: quay.io/keycloak/keycloak:26.1.5
+        image: quay.io/keycloak/keycloak:26.7.3
         # start-dev, and deliberately. It runs an embedded database and relaxes
         # the checks a production Keycloak makes about TLS and hostnames, which
         # is what lets this come up on a laptop with no certificate and no DNS.
