@@ -149,7 +149,7 @@ cub server install --image ghcr.io/confighubai/confighub:v0.8.3   # pick one
 ```
 
 The UI is released with the server under the same version and follows it: server `v0.8.3` gets
-`ghcr.io/confighub/ui:0.8.3`. `--ui-image` names a different one, and is required when `--image`
+`ghcr.io/confighub/ui:v0.8.3`. `--ui-image` names a different one, and is required when `--image`
 is not a released version. The oldest server this plugin installs is v0.8.2.
 
 Re-running an install keeps the version the instance is already on; it resumes rather than

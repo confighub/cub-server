@@ -15,8 +15,9 @@ import (
 // The web UI runs as its own container.
 //
 // It is released with the server under the same version, from its own public
-// repository. The server's tags carry a "v" and the UI's do not: server v0.6.5
-// goes with ui 0.6.5. So the UI image is derived from the server image rather
+// repository, under the same tag: server v0.8.26 goes with ui v0.8.26. (Releases
+// before v0.8.26 published the UI without the "v"; they are tagged both ways.) So
+// the UI image is derived from the server image rather
 // than resolved separately, which keeps the two from drifting apart and needs no
 // second registry lookup.
 
@@ -99,7 +100,7 @@ func resolveUIImage(u UI, o *Options) error {
 		return nil
 	}
 	if _, tag, ok := serverVersion(o.Image); ok {
-		o.UIImage = DefaultUIImageRepo + ":" + strings.TrimPrefix(tag, "v")
+		o.UIImage = DefaultUIImageRepo + ":" + tag
 		return nil
 	}
 	if prior := priorUIImage(o.OutDir); prior != "" {
