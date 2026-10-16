@@ -122,13 +122,13 @@ func TestResolveImageAcceptsAnUnreleasedServer(t *testing.T) {
 	}
 }
 
-// The UI is released with the server under the same version, without the "v".
+// The UI is released with the server under the same version and tag.
 func TestUIImageFollowsTheServerVersion(t *testing.T) {
 	o := &Options{Image: "ghcr.io/confighubai/confighub:v0.8.2", OutDir: t.TempDir()}
 	if err := resolveUIImage(discardUI(), o); err != nil {
 		t.Fatal(err)
 	}
-	if want := "ghcr.io/confighub/ui:0.8.2"; o.UIImage != want {
+	if want := "ghcr.io/confighub/ui:v0.8.2"; o.UIImage != want {
 		t.Errorf("UI image = %q, want %q", o.UIImage, want)
 	}
 

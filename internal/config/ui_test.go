@@ -28,7 +28,7 @@ func renderFiles(t *testing.T, opts Options) map[string]string {
 // are what the server checks.
 func TestUIValuesGoToTheUIContainer(t *testing.T) {
 	opts := Options{
-		Namespace: "confighub", Image: "img", UIImage: "ghcr.io/confighub/ui:0.6.5",
+		Namespace: "confighub", Image: "img", UIImage: "ghcr.io/confighub/ui:v0.6.5",
 		APIURL: "http://localhost:32180", UIURL: "http://localhost:32183", Keycloak: testKeycloak(),
 	}
 	opts.Defaults()
@@ -75,7 +75,7 @@ func TestUIValuesGoToTheUIContainer(t *testing.T) {
 
 func TestUIIsRenderedAsItsOwnDeploymentAndService(t *testing.T) {
 	files := renderFiles(t, Options{
-		Namespace: "ns", Image: "img", UIImage: "ghcr.io/confighub/ui:0.6.5",
+		Namespace: "ns", Image: "img", UIImage: "ghcr.io/confighub/ui:v0.6.5",
 		APIURL: "http://localhost:32180", APINodePort: 32180, OCINodePort: 32181, UINodePort: 32183,
 	})
 
@@ -84,7 +84,7 @@ func TestUIIsRenderedAsItsOwnDeploymentAndService(t *testing.T) {
 		t.Fatal("no UI manifest rendered")
 	}
 	for _, want := range []string{
-		"image: ghcr.io/confighub/ui:0.6.5",
+		"image: ghcr.io/confighub/ui:v0.6.5",
 		"CONFIGHUB_URL: http://localhost:32180",
 		"namespace: ns",
 	} {
