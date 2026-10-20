@@ -6,9 +6,8 @@
 > [tutorial](https://docs.confighub.com/get-started/tutorial/setup/). Nothing in this repository
 > is required.
 >
-> This plugin installs a **self-hosted** ConfigHub server. It is for prospects, customers
-> and design partners with an existing ConfigHub engagement who are evaluating self-hosting.
-> Use is conditioned on the [evaluation license](EVALUATION-LICENSE.txt).
+> This plugin installs a **self-hosted** ConfigHub server, for anyone evaluating
+> self-hosting. Use is conditioned on the [evaluation license](EVALUATION-LICENSE.txt).
 
 ## License requirements
 
