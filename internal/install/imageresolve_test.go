@@ -143,3 +143,67 @@ func TestUIImageFollowsTheServerVersion(t *testing.T) {
 		t.Errorf("want a request for --ui-image, got %v", err)
 	}
 }
+
+// A registry names its own token endpoint in its challenge; ghcr.io and gcr.io
+// name different ones.
+func TestTokenURLFollowsTheChallenge(t *testing.T) {
+	for _, tc := range []struct{ challenge, want string }{
+		{`Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:confighubai/confighub:pull"`,
+			"https://ghcr.io/token?scope=repository%3Aconfighubai%2Fconfighub%3Apull&service=ghcr.io"},
+		{`Bearer realm="https://gcr.io/v2/token",service="gcr.io"`,
+			"https://gcr.io/v2/token?scope=repository%3Ap%2Fconfighub%3Apull&service=gcr.io"},
+	} {
+		got, err := tokenURL(tc.challenge, "p/confighub")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != tc.want {
+			t.Errorf("tokenURL(%q) = %q, want %q", tc.challenge, got, tc.want)
+		}
+	}
+	if _, err := tokenURL(`Basic realm="x"`, "p/confighub"); err == nil {
+		t.Error("a Basic challenge cannot be answered anonymously")
+	}
+}
+
+// --registry moves a re-run onto another registry without changing its version.
+func TestResolveImageKeepsTheVersionAcrossRegistries(t *testing.T) {
+	o := &Options{Registry: "gcr"}
+	if err := resolveImage(discardUI(), o, "ghcr.io/confighubai/confighub:v0.8.30"); err != nil {
+		t.Fatal(err)
+	}
+	if o.Image != GCR.Server+":v0.8.30" {
+		t.Errorf("got %q", o.Image)
+	}
+}
+
+// The UI comes from the registry the server image came from, so a later
+// command that does not repeat --registry keeps them together.
+func TestUIImageFollowsTheServerRegistry(t *testing.T) {
+	for _, reg := range []Registry{GHCR, GCR} {
+		o := &Options{Image: reg.Server + ":v0.8.30", OutDir: t.TempDir()}
+		if err := resolveUIImage(discardUI(), o); err != nil {
+			t.Fatal(err)
+		}
+		if o.UIImage != reg.UI+":v0.8.30" {
+			t.Errorf("server %s got UI %q", o.Image, o.UIImage)
+		}
+	}
+}
+
+func TestParseRegistry(t *testing.T) {
+	for in, want := range map[string]Registry{
+		"":                             GHCR,
+		"ghcr":                         GHCR,
+		"gcr":                          GCR,
+		"registry.example.com/mirror/": {Server: "registry.example.com/mirror/confighub", UI: "registry.example.com/mirror/ui"},
+	} {
+		got, err := ParseRegistry(in)
+		if err != nil || got != want {
+			t.Errorf("ParseRegistry(%q) = %+v, %v; want %+v", in, got, err, want)
+		}
+	}
+	if _, err := ParseRegistry("quay"); err == nil {
+		t.Error("an unknown short name should be refused")
+	}
+}

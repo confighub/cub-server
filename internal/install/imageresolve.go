@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	neturl "net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -38,16 +39,16 @@ var semverTag = regexp.MustCompile(`^v(\d+)\.(\d+)\.(\d+)$`)
 // Anonymous: the image is public, so the pull-scoped token the registry hands
 // out without credentials is enough, and an evaluator needs no login before
 // installing.
-func resolveLatestImage(ctx context.Context) (string, error) {
-	tags, err := listTags(ctx, DefaultImageRepo)
+func resolveLatestImage(ctx context.Context, repo string) (string, error) {
+	tags, err := listTags(ctx, repo)
 	if err != nil {
 		return "", err
 	}
 	newest, err := highestSemver(tags)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w in %s", err, repo)
 	}
-	return DefaultImageRepo + ":" + newest, nil
+	return repo + ":" + newest, nil
 }
 
 // highestSemver picks the greatest vMAJOR.MINOR.PATCH tag.
@@ -77,7 +78,7 @@ func highestSemver(tags []string) (string, error) {
 		versions = append(versions, v)
 	}
 	if len(versions) == 0 {
-		return "", fmt.Errorf("no released versions found in %s", DefaultImageRepo)
+		return "", fmt.Errorf("no released versions found")
 	}
 	sort.Slice(versions, func(i, j int) bool {
 		for k := 0; k < 3; k++ {
@@ -91,27 +92,31 @@ func highestSemver(tags []string) (string, error) {
 }
 
 // listTags reads a repository's tags from an OCI registry.
+//
+// Anonymously, by the registry's own rules: the first request goes without a
+// token, and a 401 says where a pull token is to be had (ghcr.io and gcr.io
+// each name a different place), so no registry's token endpoint is hard-coded.
 func listTags(ctx context.Context, image string) ([]string, error) {
 	registry, repo, ok := strings.Cut(image, "/")
 	if !ok {
 		return nil, fmt.Errorf("cannot read a registry from %q", image)
 	}
-
-	token, err := pullToken(ctx, registry, repo)
-	if err != nil {
-		return nil, err
-	}
-
 	url := fmt.Sprintf("https://%s/v2/%s/tags/list?n=1000", registry, repo)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
 
-	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	resp, err := getTags(ctx, url, "")
 	if err != nil {
 		return nil, fmt.Errorf("listing tags in %s: %w", image, err)
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		challenge := resp.Header.Get("WWW-Authenticate")
+		resp.Body.Close()
+		token, err := pullToken(ctx, challenge, repo)
+		if err != nil {
+			return nil, fmt.Errorf("getting a pull token for %s: %w", image, err)
+		}
+		if resp, err = getTags(ctx, url, token); err != nil {
+			return nil, fmt.Errorf("listing tags in %s: %w", image, err)
+		}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -127,29 +132,74 @@ func listTags(ctx context.Context, image string) ([]string, error) {
 	return body.Tags, nil
 }
 
+func getTags(ctx context.Context, url, token string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	return (&http.Client{Timeout: 20 * time.Second}).Do(req)
+}
+
+// challengeParam matches one key="value" pair of a WWW-Authenticate header.
+var challengeParam = regexp.MustCompile(`(\w+)="([^"]*)"`)
+
+// tokenURL reads the Bearer challenge a registry answers an anonymous request
+// with, and returns where to ask for a pull token for repo.
+func tokenURL(challenge, repo string) (string, error) {
+	scheme, params, _ := strings.Cut(challenge, " ")
+	if !strings.EqualFold(scheme, "Bearer") {
+		return "", fmt.Errorf("the registry asks for %q authentication, not an anonymous token", scheme)
+	}
+	p := map[string]string{}
+	for _, m := range challengeParam.FindAllStringSubmatch(params, -1) {
+		p[m[1]] = m[2]
+	}
+	if p["realm"] == "" {
+		return "", fmt.Errorf("the registry's challenge names no token realm: %q", challenge)
+	}
+	if p["scope"] == "" {
+		p["scope"] = "repository:" + repo + ":pull"
+	}
+	q := neturl.Values{"scope": {p["scope"]}}
+	if p["service"] != "" {
+		q.Set("service", p["service"])
+	}
+	return p["realm"] + "?" + q.Encode(), nil
+}
+
 // pullToken fetches the anonymous pull token a public repository issues.
-func pullToken(ctx context.Context, registry, repo string) (string, error) {
-	url := fmt.Sprintf("https://%s/token?scope=repository:%s:pull&service=%s", registry, repo, registry)
+func pullToken(ctx context.Context, challenge, repo string) (string, error) {
+	url, err := tokenURL(challenge, repo)
+	if err != nil {
+		return "", err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
 	}
 	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
 	if err != nil {
-		return "", fmt.Errorf("getting a pull token for %s: %w", repo, err)
+		return "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("getting a pull token for %s: %s", repo, resp.Status)
+		return "", fmt.Errorf("%s", resp.Status)
 	}
 	var body struct {
-		Token string `json:"token"`
+		Token       string `json:"token"`
+		AccessToken string `json:"access_token"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		return "", err
 	}
 	if body.Token == "" {
-		return "", fmt.Errorf("the registry returned no pull token for %s", repo)
+		body.Token = body.AccessToken
+	}
+	if body.Token == "" {
+		return "", fmt.Errorf("the registry returned no pull token")
 	}
 	return body.Token, nil
 }
@@ -159,24 +209,29 @@ func pullToken(ctx context.Context, registry, repo string) (string, error) {
 // The order is the point:
 //
 //  1. --image wins. An explicit choice is never second-guessed, and it is how a
-//     mirror, a local build, or a deliberate older version is named.
+//     local build or a deliberate older version is named.
 //  2. Otherwise an image this instance is already on wins. Re-running an install
 //     resumes it; it does not upgrade the server underneath someone who only
-//     wanted to re-apply their configuration.
-//  3. Otherwise the newest released version, resolved from the registry now.
+//     wanted to re-apply their configuration. With --registry the version is
+//     kept and pulled from the registry named.
+//  3. Otherwise the newest released version in --registry, resolved now.
 //
 // There is no fourth case. A version carried in this plugin as a fallback would
 // have to be maintained, which is the treadmill resolution exists to remove, and
 // it would install something nobody chose. Naming an image is already how you
 // install without asking the registry.
 func resolveImage(u UI, o *Options, priorImage string) error {
+	reg := o.registry()
 	switch {
 	case o.Image != "":
 		return requireSupportedServer(o.Image)
 
 	case priorImage != "":
 		o.Image = priorImage
-		u.detail("keeping the image this instance is on (%s)", priorImage)
+		if _, tag, ok := serverVersion(priorImage); ok && o.Registry != "" {
+			o.Image = reg.Server + ":" + tag
+		}
+		u.detail("keeping the version this instance is on (%s)", o.Image)
 		u.detail("pass --image to move it")
 		return requireSupportedServer(o.Image)
 	}
@@ -184,10 +239,10 @@ func resolveImage(u UI, o *Options, priorImage string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	latest, err := resolveLatestImage(ctx)
+	latest, err := resolveLatestImage(ctx, reg.Server)
 	if err != nil {
 		return fmt.Errorf("could not ask the registry which ConfigHub version is newest: %w\n"+
-			"    Name one instead: cub server install --image %s:<version>", err, DefaultImageRepo)
+			"    Name one instead: cub server install --image %s:<version>", err, reg.Server)
 	}
 	o.Image = latest
 	return nil
