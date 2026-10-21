@@ -60,6 +60,11 @@ type Options struct {
 	Namespace string
 	Image     string
 
+	// Registry is where ConfigHub's own images come from when Image and
+	// UIImage do not name them: "ghcr" (empty), "gcr", or a mirror prefix.
+	// See ParseRegistry.
+	Registry string
+
 	// UIImage is the web UI's image. Empty means the release matching Image;
 	// see resolveUIImage.
 	UIImage string
@@ -207,6 +212,10 @@ func (o *Options) Validate() error {
 		}
 	default:
 		return fmt.Errorf("unknown target %q: expected kind or context", o.Target)
+	}
+
+	if _, err := ParseRegistry(o.Registry); err != nil {
+		return err
 	}
 
 	// The rest is the generator's own contract, checked by the same code that

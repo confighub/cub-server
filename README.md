@@ -155,6 +155,21 @@ Re-running an install keeps the version the instance is already on; it resumes r
 upgrading. Pass `--image` to move it, which is also how you install without reaching the
 registry at all.
 
+### Pulling from gcr.io
+
+Every release is published to ghcr.io and copied to gcr.io, for networks that can reach Google's
+registry and not GitHub's. `--registry gcr` takes the server and UI from there instead, version
+lookup included:
+
+```sh
+cub server install --registry gcr   # gcr.io/confighubapp/confighub and .../ui
+```
+
+`--registry` also takes the prefix of your own mirror, holding the two images as
+`<prefix>/confighub` and `<prefix>/ui`. Re-running an install with `--registry` keeps its version
+and pulls it from the registry named. Postgres (`postgres:17-alpine`) and Keycloak
+(`quay.io/keycloak/keycloak`) are not copied; `--keycloak-image` names a mirror of Keycloak.
+
 ## Where it runs
 
 With nothing named, an install creates a kind cluster. Name a kubeconfig context and it installs

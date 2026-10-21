@@ -21,9 +21,6 @@ import (
 // than resolved separately, which keeps the two from drifting apart and needs no
 // second registry lookup.
 
-// DefaultUIImageRepo is public on ghcr.io, like the server's.
-const DefaultUIImageRepo = "ghcr.io/confighub/ui"
-
 // uiDeploymentName is the UI's Deployment, as the manifest names it.
 const uiDeploymentName = "confighub-ui"
 
@@ -79,17 +76,19 @@ func requireSupportedServer(image string) error {
 	if !ok || !olderThan(v, minimumServerVersion) {
 		return nil
 	}
+	repo := image[:strings.LastIndex(image, ":")]
 	min := fmt.Sprintf("v%d.%d.%d", minimumServerVersion[0], minimumServerVersion[1], minimumServerVersion[2])
 	return fmt.Errorf(
 		"%s is older than %s, the first server this plugin can install: from %s the server tells clients where its web UI is.\n"+
 			"    Install a newer one with: cub server install --image %s:<version>",
-		tag, min, min, DefaultImageRepo)
+		tag, min, min, repo)
 }
 
 // resolveUIImage decides the UI image, and says so.
 //
 //  1. --ui-image wins.
-//  2. Otherwise the UI release with the server's version.
+//  2. Otherwise the UI release with the server's version, from the registry
+//     the server image came from.
 //  3. Otherwise, for a server image that is not a release, the UI this instance
 //     already runs.
 //
@@ -100,7 +99,7 @@ func resolveUIImage(u UI, o *Options) error {
 		return nil
 	}
 	if _, tag, ok := serverVersion(o.Image); ok {
-		o.UIImage = DefaultUIImageRepo + ":" + tag
+		o.UIImage = o.registryOf(o.Image).UI + ":" + tag
 		return nil
 	}
 	if prior := priorUIImage(o.OutDir); prior != "" {
@@ -111,7 +110,7 @@ func resolveUIImage(u UI, o *Options) error {
 	return fmt.Errorf(
 		"%s is not a released version, so there is no UI release to match it.\n"+
 			"    Name one: --ui-image %s:<version>",
-		o.Image, DefaultUIImageRepo)
+		o.Image, o.registry().UI)
 }
 
 // priorUIImage reads the UI image from a previous render, or "" when there is

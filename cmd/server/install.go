@@ -67,6 +67,7 @@ func init() {
 	f.StringVar(&installOpts.KubeContext, "kube-context", "", "Kubeconfig context to install into, instead of creating a kind cluster")
 
 	f.StringVar(&installOpts.Namespace, "namespace", "", "Namespace to install into (default "+install.DefaultNamespace+")")
+	f.StringVar(&installOpts.Registry, "registry", "", "Where to pull ConfigHub's images from: ghcr, gcr, or a mirror prefix holding <prefix>/confighub and <prefix>/ui (default ghcr)")
 	f.StringVar(&installOpts.Image, "image", "", "Server image, tag included (default: the newest released version, resolved from the registry)")
 	f.StringVar(&installOpts.UIImage, "ui-image", "", "Web UI image, tag included (default: the UI release matching the server's version)")
 
