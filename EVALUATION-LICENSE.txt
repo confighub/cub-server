@@ -23,7 +23,7 @@ defects.
 Subject to your compliance with this Agreement, ConfigHub grants you a limited,
 non-exclusive, non-transferable, non-sublicensable, royalty-free, and revocable
 license to pull, install, and run the Software solely for your internal
-evaluation and for collaboration with ConfigHub during the Term.
+evaluation during the Term.
 
 This is a license to use the Software in object/container form only. It is not a
 sale, and it conveys no ownership. The Software is made publicly available for
