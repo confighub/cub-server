@@ -46,10 +46,6 @@ e. use the Software to develop or assist in developing a product or service that
 f. use the Software in any production, safety-critical, or revenue-generating
    environment, or to process data you cannot afford to lose.
 
-Nothing in this Agreement restricts you from publicly discussing, writing about,
-or publishing results of your evaluation of the Software, including benchmark and
-performance results.
-
 4. Ownership
 
 ConfigHub and its licensors retain all right, title, and interest in and to the
