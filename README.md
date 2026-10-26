@@ -182,7 +182,13 @@ server's ConfigMap (`confighub-env`) and Secret (`confighub-secret-env`) and the
 (`confighub-ui-env`). Merge them into your manifests, or apply them with the `kubectl patch`
 commands it prints. It never touches the cluster.
 
-Keep the output directory: re-running reads the server's key back from it. A master-realm client
+If External Secrets produces the server's Secret, a patch on that Secret lasts only until the
+next sync. Pass `--secrets external-secrets --remote-key <path> [--remote-property <name>]`
+instead: the key is written to `keycloak-client-key.jwk` for you to put in your secret store,
+and an entry for the ExternalSecret (default `confighub-secret-env`) replaces the Secret patch.
+
+Keep the output directory: re-running reads the server's key back from it, or from
+`--client-key-file` if you keep it elsewhere. A master-realm client
 can stand in for the admin user (`--admin-client-id`, secret in `$KEYCLOAK_ADMIN_CLIENT_SECRET`).
 The other `keycloak idp` flags work the same against this Keycloak with `--keycloak-url`.
 

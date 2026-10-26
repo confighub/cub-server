@@ -32,14 +32,16 @@ creates or updates, as needed:
   the realm roles the server reads org roles from:
     admin, manager, editor, user, viewer, creator, none
 
-It then checks that Keycloak accepts the server's key, and writes three merge
-patches: the server's ConfigMap and Secret, and the UI's ConfigMap. Merge them
-into your manifests, or apply them with the kubectl commands it prints. Nothing
-here touches a cluster.
+It then checks that Keycloak accepts the server's key, and writes merge patches
+for the server's and the UI's ConfigMaps, and for the server's key either a
+Secret patch or, with --secrets external-secrets, an entry for the
+ExternalSecret that produces that Secret plus the key as a file to put in your
+secret store. Merge them into your manifests, or apply them with the kubectl
+commands it prints. Nothing here touches a cluster.
 
 Re-running it is safe. The realm is reconciled, and the server's key is read
-back from the Secret patch in --out-dir, so keep that directory. Without it a
-new key is made and Keycloak is switched to it.
+back from --out-dir, or from --client-key-file. Without either, a new key is
+made and Keycloak is switched to it.
 
 The admin password is read from $KEYCLOAK_ADMIN_PASSWORD, or asked for. A
 master-realm client with the admin role can be used instead: --admin-client-id,
@@ -49,7 +51,11 @@ Examples:
   cub server keycloak configure \
     --keycloak-url https://keycloak.example.com \
     --ui-url https://confighub.example.com \
-    --org example --org-domain example.com`,
+    --org example --org-domain example.com
+
+  with the server's Secret produced by External Secrets:
+  cub server keycloak configure ... \
+    --secrets external-secrets --remote-key confighub/server --remote-property KEYCLOAK_CLIENT_PRIVATE_KEY_JWK`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ui := install.UI{Out: os.Stdout}
@@ -80,7 +86,13 @@ func init() {
 	f.StringVar(&o.Keycloak.UIClientID, "ui-client-id", "", "Client the UI signs in as (default "+config.DefaultKeycloakUIClientID+")")
 
 	f.StringVar(&o.Namespace, "namespace", "", "Namespace the instance runs in, for the kubectl commands printed (default "+install.DefaultNamespace+")")
-	f.StringVar(&o.OutDir, "out-dir", "", "Where to write the patches (default ~/.confighub/keycloak/<keycloak host>/<realm>)")
+	f.StringVar(&o.OutDir, "out-dir", "", "Where to write the patches and keep the server's key (default ~/.confighub/keycloak/<keycloak host>/<realm>)")
+	f.StringVar(&o.ClientKeyFile, "client-key-file", "", "The server's key from an earlier run, if not kept in --out-dir")
+
+	f.StringVar(&o.Secrets, "secrets", "", "How the server's Secret is produced: kubernetes (default), or external-secrets for an ExternalSecret")
+	f.StringVar(&o.ExternalSecret, "external-secret", "", "With --secrets external-secrets: the ExternalSecret producing the server's Secret (default confighub-secret-env)")
+	f.StringVar(&o.RemoteKey, "remote-key", "", "With --secrets external-secrets: where in the secret store the server's key is kept")
+	f.StringVar(&o.RemoteProperty, "remote-property", "", "With --secrets external-secrets: the property within --remote-key, if it holds several values")
 
 	keycloakCmd.AddCommand(keycloakConfigureCmd)
 }

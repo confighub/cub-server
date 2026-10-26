@@ -11,8 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/confighub/cub-server/internal/config"
 )
 
@@ -57,9 +55,28 @@ type ConfigureOptions struct {
 	// Namespace is where the instance runs, for the commands this prints.
 	Namespace string
 
-	// OutDir is where the server's patches are written.
+	// OutDir is where the server's patches are written, and where the server's
+	// key is kept for the next run.
 	OutDir string
+
+	// ClientKeyFile is the server's key, when it is kept somewhere other than
+	// OutDir -- typically fetched from the secret store it lives in.
+	ClientKeyFile string
+
+	// Secrets is how the server's Secret is produced: SecretsKubernetes, applied
+	// directly, or SecretsExternal, by an ExternalSecret named ExternalSecret
+	// from the secret-store entry RemoteKey (and RemoteProperty, when that entry
+	// holds several values).
+	Secrets        string
+	ExternalSecret string
+	RemoteKey      string
+	RemoteProperty string
 }
+
+const (
+	SecretsKubernetes = "kubernetes"
+	SecretsExternal   = "external-secrets"
+)
 
 // The three objects the server's configuration lives in, named as the
 // manifests from `cub server install` name them.
@@ -79,7 +96,7 @@ func RunConfigure(ctx context.Context, u UI, in io.Reader, c *ConfigureOptions) 
 	}
 	k := &c.Keycloak
 
-	clientKey, rotated, err := c.clientKey()
+	clientKey, generated, err := c.clientKey()
 	if err != nil {
 		return err
 	}
@@ -165,7 +182,7 @@ func RunConfigure(ctx context.Context, u UI, in io.Reader, c *ConfigureOptions) 
 	// Written before the key is checked, not after: Keycloak already holds its
 	// public half, so a failed check has to leave the private half where a
 	// re-run will find it.
-	paths, err := c.writePatches(clientKey)
+	out, err := c.writeOutputs(clientKey)
 	if err != nil {
 		return err
 	}
@@ -179,7 +196,7 @@ func RunConfigure(ctx context.Context, u UI, in io.Reader, c *ConfigureOptions) 
 	}
 	u.detail("Keycloak accepts an assertion signed with it")
 
-	return c.report(u, paths, rotated)
+	return c.report(u, out, generated)
 }
 
 func (c *ConfigureOptions) defaults() error {
@@ -215,6 +232,22 @@ func (c *ConfigureOptions) defaults() error {
 	}
 	if c.Namespace == "" {
 		c.Namespace = DefaultNamespace
+	}
+	switch c.Secrets {
+	case "", SecretsKubernetes:
+		c.Secrets = SecretsKubernetes
+		if c.RemoteKey != "" || c.RemoteProperty != "" || c.ExternalSecret != "" {
+			return fmt.Errorf("--remote-key, --remote-property and --external-secret are for --secrets %s", SecretsExternal)
+		}
+	case SecretsExternal:
+		if c.RemoteKey == "" {
+			return fmt.Errorf("--secrets %s needs --remote-key: where in your secret store the server's key is kept", SecretsExternal)
+		}
+		if c.ExternalSecret == "" {
+			c.ExternalSecret = serverSecret
+		}
+	default:
+		return fmt.Errorf("--secrets %q: use %s or %s", c.Secrets, SecretsKubernetes, SecretsExternal)
 	}
 	if c.OutDir == "" {
 		home, err := os.UserHomeDir()
@@ -272,24 +305,27 @@ func resolveAdminCredential(cred *KeycloakAdminCredential, in io.Reader, out io.
 	return nil
 }
 
-func (c *ConfigureOptions) secretPatchPath() string {
-	return filepath.Join(c.OutDir, serverSecret+".patch.yaml")
-}
+// clientKeyFile is where the server's key is kept between runs, on its own, so
+// it can also be put into a secret store as it is.
+const clientKeyFile = "keycloak-client-key.jwk"
 
-// clientKey reads back the key the last run wrote, or makes one. rotated says a
-// new key replaced one Keycloak already held for this client.
-func (c *ConfigureOptions) clientKey() (key string, rotated bool, err error) {
-	content, err := os.ReadFile(c.secretPatchPath())
+// clientKey returns the server's key: the one passed with --client-key-file,
+// else the one the last run kept in --out-dir, else a new one. generated says
+// it is new, so Keycloak is about to be switched to it.
+func (c *ConfigureOptions) clientKey() (key string, generated bool, err error) {
+	path := c.ClientKeyFile
+	if path == "" {
+		path = filepath.Join(c.OutDir, clientKeyFile)
+	}
+	content, err := os.ReadFile(path)
 	switch {
 	case err == nil:
-		var patch struct {
-			StringData map[string]string `yaml:"stringData"`
+		key := strings.TrimSpace(string(content))
+		if _, err := config.ClientJWKS(key); err != nil {
+			return "", false, fmt.Errorf("%s does not hold the server's Ed25519 key: %w", path, err)
 		}
-		if err := yaml.Unmarshal(content, &patch); err == nil && patch.StringData[config.KeycloakClientKeyEnv] != "" {
-			return patch.StringData[config.KeycloakClientKeyEnv], false, nil
-		}
-		return "", false, fmt.Errorf("%s has no %s; move it aside to make a new key", c.secretPatchPath(), config.KeycloakClientKeyEnv)
-	case os.IsNotExist(err):
+		return key, false, nil
+	case os.IsNotExist(err) && c.ClientKeyFile == "":
 		key, err := config.GenerateClientKey()
 		return key, true, err
 	default:
@@ -297,10 +333,22 @@ func (c *ConfigureOptions) clientKey() (key string, rotated bool, err error) {
 	}
 }
 
-// writePatches writes the server's and the UI's configuration as merge patches
-// on the objects the generated manifests name. Each is also a plain list of
-// what to add, for whoever keeps their manifests by hand.
-func (c *ConfigureOptions) writePatches(clientKey string) (map[string]string, error) {
+// configureOutputs are the files a run writes, by what they are for.
+type configureOutputs struct {
+	serverConfigMap, uiConfigMap string
+	secretPatch                  string // --secrets kubernetes
+	externalSecretPatch          string // --secrets external-secrets
+	externalSecretEntry          string // the same entry, to merge by hand
+	clientKey                    string
+}
+
+// writeOutputs writes the server's and the UI's configuration as merge patches
+// on the objects the generated manifests name, each also a plain list of what
+// to add for whoever keeps their manifests by hand. The server's key goes to a
+// Secret patch, or, when an ExternalSecret owns that Secret, to a file for the
+// secret store and an entry for the ExternalSecret: a patch on a Secret that
+// External Secrets manages lasts until its next sync.
+func (c *ConfigureOptions) writeOutputs(clientKey string) (*configureOutputs, error) {
 	if err := os.MkdirAll(c.OutDir, 0o700); err != nil {
 		return nil, err
 	}
@@ -312,70 +360,148 @@ func (c *ConfigureOptions) writePatches(clientKey string) (map[string]string, er
 		groups[v.Placement] = append(groups[v.Placement], v)
 	}
 
-	paths := map[string]string{}
-	for _, target := range []struct {
-		placement config.Placement
-		object    string
-		field     string
-		mode      os.FileMode
-	}{
-		{config.InConfigMap, serverConfigMap, "data", 0o644},
-		{config.InSecret, serverSecret, "stringData", 0o600},
-		{config.InUIConfigMap, uiConfigMap, "data", 0o644},
-	} {
-		var b strings.Builder
-		fmt.Fprintf(&b, "# Merge into %s, or: kubectl patch ... --type merge --patch-file <this file>\n", target.object)
-		fmt.Fprintf(&b, "# Written by `cub server keycloak configure`.\n")
-		fmt.Fprintf(&b, "%s:\n", target.field)
-		for _, v := range groups[target.placement] {
-			quoted, _ := json.Marshal(v.Value)
-			fmt.Fprintf(&b, "  # %s\n  %s: %s\n", v.Doc, v.Name, quoted)
-		}
-		path := filepath.Join(c.OutDir, target.object+".patch.yaml")
-		if err := os.WriteFile(path, []byte(b.String()), target.mode); err != nil {
-			return nil, err
-		}
-		// WriteFile keeps the mode of a file that already exists.
-		if err := os.Chmod(path, target.mode); err != nil {
-			return nil, err
-		}
-		paths[target.object] = path
+	out := &configureOutputs{
+		serverConfigMap:     filepath.Join(c.OutDir, serverConfigMap+".patch.yaml"),
+		uiConfigMap:         filepath.Join(c.OutDir, uiConfigMap+".patch.yaml"),
+		secretPatch:         filepath.Join(c.OutDir, serverSecret+".patch.yaml"),
+		externalSecretPatch: filepath.Join(c.OutDir, c.ExternalSecret+".externalsecret-patch.json"),
+		externalSecretEntry: filepath.Join(c.OutDir, c.ExternalSecret+".externalsecret-entry.yaml"),
+		clientKey:           filepath.Join(c.OutDir, clientKeyFile),
 	}
-	return paths, nil
+	if err := writeFile(out.clientKey, []byte(clientKey+"\n"), 0o600); err != nil {
+		return nil, err
+	}
+	if err := writeFile(out.serverConfigMap, mergePatch(serverConfigMap, "data", groups[config.InConfigMap]), 0o644); err != nil {
+		return nil, err
+	}
+	if err := writeFile(out.uiConfigMap, mergePatch(uiConfigMap, "data", groups[config.InUIConfigMap]), 0o644); err != nil {
+		return nil, err
+	}
+
+	// The files of the other mode are removed, so a directory that has been
+	// used both ways does not offer a patch that no longer applies.
+	stale := []string{out.externalSecretPatch, out.externalSecretEntry}
+	if c.Secrets == SecretsExternal {
+		stale = []string{out.secretPatch}
+		entry, patch := externalSecretEntry(config.KeycloakClientKeyEnv, c.RemoteKey, c.RemoteProperty)
+		if err := writeFile(out.externalSecretEntry, entry, 0o644); err != nil {
+			return nil, err
+		}
+		if err := writeFile(out.externalSecretPatch, patch, 0o644); err != nil {
+			return nil, err
+		}
+	} else if err := writeFile(out.secretPatch, mergePatch(serverSecret, "stringData", groups[config.InSecret]), 0o600); err != nil {
+		return nil, err
+	}
+	for _, path := range stale {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
-func (c *ConfigureOptions) report(u UI, paths map[string]string, rotated bool) error {
+// writeFile writes content with mode, including over a file that exists with
+// another one: WriteFile keeps the mode of a file it does not create.
+func writeFile(path string, content []byte, mode os.FileMode) error {
+	if err := os.WriteFile(path, content, mode); err != nil {
+		return err
+	}
+	return os.Chmod(path, mode)
+}
+
+func mergePatch(object, field string, vars []config.Var) []byte {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Merge into %s, or: kubectl patch ... --type merge --patch-file <this file>\n", object)
+	fmt.Fprintf(&b, "# Written by `cub server keycloak configure`.\n")
+	fmt.Fprintf(&b, "%s:\n", field)
+	for _, v := range vars {
+		quoted, _ := json.Marshal(v.Value)
+		fmt.Fprintf(&b, "  # %s\n  %s: %s\n", v.Doc, v.Name, quoted)
+	}
+	return []byte(b.String())
+}
+
+// externalSecretEntry is the spec.data entry that brings one key from the
+// secret store into the Secret, as YAML to merge by hand and as a JSON patch
+// that appends it.
+func externalSecretEntry(secretKey, remoteKey, property string) (entryYAML, patchJSON []byte) {
+	remoteRef := map[string]any{"key": remoteKey}
+	if property != "" {
+		remoteRef["property"] = property
+	}
+	entry := map[string]any{"secretKey": secretKey, "remoteRef": remoteRef}
+
+	var b strings.Builder
+	b.WriteString("# Add to spec.data of the ExternalSecret that produces the server's Secret.\n")
+	b.WriteString("# Written by `cub server keycloak configure`.\n")
+	fmt.Fprintf(&b, "- secretKey: %s\n  remoteRef:\n    key: %q\n", secretKey, remoteKey)
+	if property != "" {
+		fmt.Fprintf(&b, "    property: %q\n", property)
+	}
+
+	patch, _ := json.MarshalIndent([]any{map[string]any{"op": "add", "path": "/spec/data/-", "value": entry}}, "", "  ")
+	return []byte(b.String()), append(patch, '\n')
+}
+
+func (c *ConfigureOptions) report(u UI, out *configureOutputs, generated bool) error {
 	k := c.Keycloak
 	ns := c.Namespace
 	lines := []string{
 		"realm        " + k.Realm,
 		"issuer       " + k.Issuer(),
 		"UI client    " + k.UIClientID + "  (returns to " + k.UIRedirectURI + ")",
+		"server key   " + out.clientKey,
 		"",
 		"Point the server and the UI at it. Merge these into the manifests you",
 		"apply, so the next apply keeps them:",
 		"",
-		"  " + paths[serverConfigMap] + "   ConfigMap " + serverConfigMap,
-		"  " + paths[serverSecret] + "   Secret " + serverSecret,
-		"  " + paths[uiConfigMap] + "   ConfigMap " + uiConfigMap,
-		"",
-		"or patch what is running:",
-		"",
-		fmt.Sprintf("  kubectl -n %s patch configmap %s --type merge --patch-file %s", ns, serverConfigMap, paths[serverConfigMap]),
-		fmt.Sprintf("  kubectl -n %s patch secret %s --type merge --patch-file %s", ns, serverSecret, paths[serverSecret]),
-		fmt.Sprintf("  kubectl -n %s patch configmap %s --type merge --patch-file %s", ns, uiConfigMap, paths[uiConfigMap]),
+		"  " + out.serverConfigMap + "   ConfigMap " + serverConfigMap,
+		"  " + out.uiConfigMap + "   ConfigMap " + uiConfigMap,
+	}
+	if c.Secrets == SecretsExternal {
+		where := c.RemoteKey
+		if c.RemoteProperty != "" {
+			where += ", property " + c.RemoteProperty
+		}
+		lines = append(lines,
+			"  "+out.externalSecretEntry+"   ExternalSecret "+c.ExternalSecret,
+			"",
+			"The server's key goes in your secret store, not in the cluster. Store the",
+			"contents of "+out.clientKey,
+			"at "+where+". If the ExternalSecret reads",
+			"that secret whole (dataFrom), store it as the "+config.KeycloakClientKeyEnv,
+			"property instead and skip the entry above.",
+			"",
+			"Or patch what is running, once:",
+			"",
+			fmt.Sprintf("  kubectl -n %s patch externalsecret %s --type json --patch-file %s", ns, c.ExternalSecret, out.externalSecretPatch),
+		)
+	} else {
+		lines = append(lines,
+			"  "+out.secretPatch+"   Secret "+serverSecret,
+			"",
+			"or patch what is running:",
+			"",
+			fmt.Sprintf("  kubectl -n %s patch secret %s --type merge --patch-file %s", ns, serverSecret, out.secretPatch),
+		)
+	}
+	lines = append(lines,
+		fmt.Sprintf("  kubectl -n %s patch configmap %s --type merge --patch-file %s", ns, serverConfigMap, out.serverConfigMap),
+		fmt.Sprintf("  kubectl -n %s patch configmap %s --type merge --patch-file %s", ns, uiConfigMap, out.uiConfigMap),
 		fmt.Sprintf("  kubectl -n %s rollout restart deployment/confighub deployment/confighub-ui", ns),
 		"",
-		"Everyone who signs in has to be a member of the " + k.Org + " organization,",
+		"Everyone who signs in has to be a member of the "+k.Org+" organization,",
 		"and gets the creator org role until given another. Give the first",
 		"administrator the admin realm role in the Keycloak console, under Users,",
 		"after their first sign-in, or map it from your identity provider with",
 		"`cub server keycloak idp --role-map`.",
-	}
-	if rotated {
+	)
+	if generated {
 		lines = append(lines, "",
 			"A new server key was made. If this realm was set up before, the server",
-			"cannot reach Keycloak until it has the new Secret.")
+			"cannot reach Keycloak until it has the new key. Keep "+out.clientKey+",",
+			"or pass it back with --client-key-file, so the next run reuses it.")
 	}
 	u.section("Keycloak is set up for ConfigHub.", lines...)
 	return nil
