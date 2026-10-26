@@ -26,7 +26,10 @@ const uiDeploymentName = "confighub-ui"
 
 // minimumServerVersion is the oldest server this plugin installs.
 //
-// v0.8.2 is the first release whose server advertises the UI's address
+// v0.9.5 is the first release whose server reads its token signing key from
+// CONFIGHUB_TOKEN_SIGNING_KEY_JWK, the name rendered here; an older one would
+// mint a new key at every start and log everyone out each time. Before that,
+// v0.8.2 was the first release whose server advertises the UI's address
 // (CONFIGHUB_UI_URL, as UIURL in /api/info), which is now the only way cub
 // learns where the UI is. Before that, v0.6.5 was the first whose server read
 // the auth variables under the
@@ -34,7 +37,7 @@ const uiDeploymentName = "confighub-ui"
 // and no longer needs a cookie-login redirect, and whose UI is published as its
 // own image. An older server with this configuration would refuse to start or
 // have no UI to go with it.
-var minimumServerVersion = [3]int{0, 8, 2}
+var minimumServerVersion = [3]int{0, 9, 5}
 
 // serverVersion reads vMAJOR.MINOR.PATCH from an image reference, or reports
 // false for any other tag -- a local build, a digest, a branch image.
@@ -79,7 +82,7 @@ func requireSupportedServer(image string) error {
 	repo := image[:strings.LastIndex(image, ":")]
 	min := fmt.Sprintf("v%d.%d.%d", minimumServerVersion[0], minimumServerVersion[1], minimumServerVersion[2])
 	return fmt.Errorf(
-		"%s is older than %s, the first server this plugin can install: from %s the server tells clients where its web UI is.\n"+
+		"%s is older than %s, the first server this plugin can install: from %s the server reads its token signing key under the name this plugin writes.\n"+
 			"    Install a newer one with: cub server install --image %s:<version>",
 		tag, min, min, repo)
 }

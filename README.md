@@ -206,12 +206,12 @@ The version it resolved is written into the generated manifests, not a floating 
 running is answerable, and two people installing at the same moment get the same thing.
 
 ```sh
-cub server install --image ghcr.io/confighubai/confighub:v0.8.3   # pick one
+cub server install --image ghcr.io/confighubai/confighub:v0.9.5   # pick one
 ```
 
-The UI is released with the server under the same version and follows it: server `v0.8.3` gets
-`ghcr.io/confighub/ui:v0.8.3`. `--ui-image` names a different one, and is required when `--image`
-is not a released version. The oldest server this plugin installs is v0.8.2.
+The UI is released with the server under the same version and follows it: server `v0.9.5` gets
+`ghcr.io/confighub/ui:v0.9.5`. `--ui-image` names a different one, and is required when `--image`
+is not a released version. The oldest server this plugin installs is v0.9.5, the first to read the token signing key as `CONFIGHUB_TOKEN_SIGNING_KEY_JWK`.
 
 Re-running an install keeps the version the instance is already on; it resumes rather than
 upgrading. Pass `--image` to move it, which is also how you install without reaching the
@@ -300,7 +300,7 @@ private key is left behind, even if it was generated as part of the install.
 
 ```sh
 cub server key admin             # the local administrator's keypair
-cub server key signing           # JWT_PRIVATE_KEY_JWK
+cub server key signing           # CONFIGHUB_TOKEN_SIGNING_KEY_JWK
 cub server key worker-secret     # WORKER_MASTER_SECRET
 cub server key keycloak-client   # the key a server authenticates to Keycloak with
 ```

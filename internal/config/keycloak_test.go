@@ -368,3 +368,23 @@ func TestClientJWKSMatchesThePrivateKey(t *testing.T) {
 		t.Error("deriving the key set twice produced different results")
 	}
 }
+
+// An install rendered under the old name keeps its key across the rename: a new
+// key would log everyone out.
+func TestSigningKeyCarriedOverFromLegacyName(t *testing.T) {
+	opts := Options{
+		Namespace: "confighub", Image: "img", UIImage: "ghcr.io/confighub/ui:v0.9.5",
+		APIURL: "http://localhost:32180", UIURL: "http://localhost:32183",
+	}
+	opts.Defaults()
+	surface, err := Build(opts, Preserved{legacySigningKeyEnv: "legacy-key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := surface.Get(SigningKeyEnv); got != "legacy-key" {
+		t.Errorf("%s = %q, want the key held under %s", SigningKeyEnv, got, legacySigningKeyEnv)
+	}
+	if surface.Get(legacySigningKeyEnv) != "" {
+		t.Errorf("%s is still rendered", legacySigningKeyEnv)
+	}
+}

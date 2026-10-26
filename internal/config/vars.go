@@ -101,7 +101,7 @@ type Var struct {
 
 	// Generated marks a value this package minted rather than one the caller
 	// supplied. Generated values must survive re-running the generator: a fresh
-	// JWT_PRIVATE_KEY_JWK invalidates every session, and a fresh
+	// CONFIGHUB_TOKEN_SIGNING_KEY_JWK invalidates every session, and a fresh
 	// WORKER_MASTER_SECRET breaks every worker that has already enrolled.
 	Generated bool
 }
@@ -120,7 +120,14 @@ func RandomSecret() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
-// GenerateSigningKey produces a JWT_PRIVATE_KEY_JWK value.
+// The token signing key, under the name the server reads since v0.9.5, and the
+// name it had before, which an install rendered earlier still holds it under.
+const (
+	SigningKeyEnv       = "CONFIGHUB_TOKEN_SIGNING_KEY_JWK"
+	legacySigningKeyEnv = "JWT_PRIVATE_KEY_JWK"
+)
+
+// GenerateSigningKey produces a CONFIGHUB_TOKEN_SIGNING_KEY_JWK value.
 //
 // This is the key the server signs every ConfigHub token with. It is optional
 // today, and when it is unset InitJWTService generates a fresh one at every
