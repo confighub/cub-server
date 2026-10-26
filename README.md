@@ -232,6 +232,24 @@ cub server install --registry gcr   # gcr.io/confighubapp/confighub and .../ui
 and pulls it from the registry named. Postgres (`postgres:17-alpine`) and Keycloak
 (`quay.io/keycloak/keycloak`) are not copied; `--keycloak-image` names a mirror of Keycloak.
 
+## Upgrading
+
+```sh
+cub server upgrade                          # plan the newest release; changes nothing
+cub server upgrade --version v0.9.5 --apply # upgrade the running instance
+```
+
+`upgrade` reads the instance from the cluster (`--kube-context`, `--kubeconfig`, `--namespace`),
+so it works however the instance was deployed, including from manifests you keep yourself, with
+nothing under `~/.confighub/servers`. It moves the server, the init container that migrates its
+database, and the UI to the new version's tag, and keeps each image's registry, so a mirror stays
+a mirror (copy the new version into it first).
+
+It writes one strategic-merge patch per Deployment to `--out-dir`. Merge them into the manifests
+you apply (they also work as kustomize patches), or run the `kubectl patch` commands it prints.
+`--apply` patches the running Deployments itself, server first, and waits for each rollout. The
+manifests still need the same change, or their next apply undoes the upgrade.
+
 ## Where it runs
 
 With nothing named, an install creates a kind cluster. Name a kubeconfig context and it installs
