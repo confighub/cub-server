@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/confighub/cub-server/internal/config"
@@ -64,18 +65,22 @@ type ConfigureOptions struct {
 	ClientKeyFile string
 
 	// Secrets is how the server's Secret is produced: SecretsKubernetes, applied
-	// directly, or SecretsExternal, by an ExternalSecret named ExternalSecret
-	// from the secret-store entry RemoteKey (and RemoteProperty, when that entry
-	// holds several values).
-	Secrets        string
-	ExternalSecret string
-	RemoteKey      string
-	RemoteProperty string
+	// directly; SecretsExternal, by an ExternalSecret named ExternalSecret; or
+	// SecretsStoreCSI, synced by the Secrets Store CSI driver through the
+	// SecretProviderClass named SecretProviderClass. The last two read the
+	// secret-store entry RemoteKey (and RemoteProperty, when that entry holds
+	// several values).
+	Secrets             string
+	ExternalSecret      string
+	SecretProviderClass string
+	RemoteKey           string
+	RemoteProperty      string
 }
 
 const (
 	SecretsKubernetes = "kubernetes"
 	SecretsExternal   = "external-secrets"
+	SecretsStoreCSI   = "secrets-store-csi"
 )
 
 // The three objects the server's configuration lives in, named as the
@@ -233,29 +238,33 @@ func (c *ConfigureOptions) defaults() error {
 	if c.Namespace == "" {
 		c.Namespace = DefaultNamespace
 	}
+	external := c.RemoteKey != "" || c.RemoteProperty != ""
 	switch c.Secrets {
 	case "", SecretsKubernetes:
 		c.Secrets = SecretsKubernetes
-		if c.RemoteKey != "" || c.RemoteProperty != "" || c.ExternalSecret != "" {
-			return fmt.Errorf("--remote-key, --remote-property and --external-secret are for --secrets %s", SecretsExternal)
+		if external {
+			return fmt.Errorf("--remote-key and --remote-property are for --secrets %s or %s", SecretsExternal, SecretsStoreCSI)
 		}
-	case SecretsExternal:
+	case SecretsExternal, SecretsStoreCSI:
 		if c.RemoteKey == "" {
-			return fmt.Errorf("--secrets %s needs --remote-key: where in your secret store the server's key is kept", SecretsExternal)
-		}
-		if c.ExternalSecret == "" {
-			c.ExternalSecret = serverSecret
+			return fmt.Errorf("--secrets %s needs --remote-key: where in your secret store the server's key is kept", c.Secrets)
 		}
 	default:
-		return fmt.Errorf("--secrets %q: use %s or %s", c.Secrets, SecretsKubernetes, SecretsExternal)
+		return fmt.Errorf("--secrets %q: use %s, %s or %s", c.Secrets, SecretsKubernetes, SecretsExternal, SecretsStoreCSI)
 	}
-	if c.OutDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("cannot determine a home directory for the generated config: %w", err)
-		}
-		host, _ := url.Parse(k.PublicURL)
-		c.OutDir = filepath.Join(home, ".confighub", "keycloak", sanitize(host.Host), k.Realm)
+	if c.ExternalSecret != "" && c.Secrets != SecretsExternal {
+		return fmt.Errorf("--external-secret is for --secrets %s", SecretsExternal)
+	}
+	if c.SecretProviderClass != "" && c.Secrets != SecretsStoreCSI {
+		return fmt.Errorf("--secret-provider-class is for --secrets %s", SecretsStoreCSI)
+	}
+	if c.Secrets == SecretsExternal && c.ExternalSecret == "" {
+		c.ExternalSecret = serverSecret
+	}
+	// Required rather than guessed: the name ends up in the Deployment's volume,
+	// and a wrong one fails as a pod that never starts, far from here.
+	if c.Secrets == SecretsStoreCSI && c.SecretProviderClass == "" {
+		return fmt.Errorf("--secrets %s needs --secret-provider-class: the SecretProviderClass the server's Secret is synced through", SecretsStoreCSI)
 	}
 	return nil
 }
@@ -339,6 +348,7 @@ type configureOutputs struct {
 	secretPatch                  string // --secrets kubernetes
 	externalSecretPatch          string // --secrets external-secrets
 	externalSecretEntry          string // the same entry, to merge by hand
+	secretProviderClass          string // --secrets secrets-store-csi
 	clientKey                    string
 }
 
@@ -366,6 +376,7 @@ func (c *ConfigureOptions) writeOutputs(clientKey string) (*configureOutputs, er
 		secretPatch:         filepath.Join(c.OutDir, serverSecret+".patch.yaml"),
 		externalSecretPatch: filepath.Join(c.OutDir, c.ExternalSecret+".externalsecret-patch.json"),
 		externalSecretEntry: filepath.Join(c.OutDir, c.ExternalSecret+".externalsecret-entry.yaml"),
+		secretProviderClass: filepath.Join(c.OutDir, c.SecretProviderClass+".secretproviderclass-entries.yaml"),
 		clientKey:           filepath.Join(c.OutDir, clientKeyFile),
 	}
 	if err := writeFile(out.clientKey, []byte(clientKey+"\n"), 0o600); err != nil {
@@ -378,11 +389,16 @@ func (c *ConfigureOptions) writeOutputs(clientKey string) (*configureOutputs, er
 		return nil, err
 	}
 
-	// The files of the other mode are removed, so a directory that has been
-	// used both ways does not offer a patch that no longer applies.
-	stale := []string{out.externalSecretPatch, out.externalSecretEntry}
-	if c.Secrets == SecretsExternal {
-		stale = []string{out.secretPatch}
+	// The files of the other modes are removed, so a directory that has been
+	// used more than one way does not offer a patch that no longer applies.
+	stale := []string{out.secretPatch}
+	for _, pattern := range []string{"*.externalsecret-patch.json", "*.externalsecret-entry.yaml", "*.secretproviderclass-entries.yaml"} {
+		matches, _ := filepath.Glob(filepath.Join(c.OutDir, pattern))
+		stale = append(stale, matches...)
+	}
+	var keep []string
+	switch c.Secrets {
+	case SecretsExternal:
 		entry, patch := externalSecretEntry(config.KeycloakClientKeyEnv, c.RemoteKey, c.RemoteProperty)
 		if err := writeFile(out.externalSecretEntry, entry, 0o644); err != nil {
 			return nil, err
@@ -390,9 +406,20 @@ func (c *ConfigureOptions) writeOutputs(clientKey string) (*configureOutputs, er
 		if err := writeFile(out.externalSecretPatch, patch, 0o644); err != nil {
 			return nil, err
 		}
-	} else if err := writeFile(out.secretPatch, mergePatch(serverSecret, "stringData", groups[config.InSecret]), 0o600); err != nil {
-		return nil, err
+		keep = []string{out.externalSecretEntry, out.externalSecretPatch}
+	case SecretsStoreCSI:
+		fragments := secretProviderClassEntries(c.SecretProviderClass, config.KeycloakClientKeyEnv, c.RemoteKey, c.RemoteProperty)
+		if err := writeFile(out.secretProviderClass, fragments, 0o644); err != nil {
+			return nil, err
+		}
+		keep = []string{out.secretProviderClass}
+	default:
+		if err := writeFile(out.secretPatch, mergePatch(serverSecret, "stringData", groups[config.InSecret]), 0o600); err != nil {
+			return nil, err
+		}
+		keep = []string{out.secretPatch}
 	}
+	stale = slices.DeleteFunc(stale, func(path string) bool { return slices.Contains(keep, path) })
 	for _, path := range stale {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			return nil, err
@@ -444,6 +471,42 @@ func externalSecretEntry(secretKey, remoteKey, property string) (entryYAML, patc
 	return []byte(b.String()), append(patch, '\n')
 }
 
+// secretProviderClassEntries is what to add to a SecretProviderClass (Secrets
+// Store CSI driver, AWS provider) so the server's Secret carries one more key
+// from AWS Secrets Manager, and the volume without which the driver never
+// writes that Secret: it syncs a Secret only while a pod mounts the class.
+func secretProviderClassEntries(class, secretKey, remoteKey, property string) []byte {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# What to add to the SecretProviderClass %q so the server's Secret takes\n", class)
+	fmt.Fprintf(&b, "# %s from AWS Secrets Manager.\n", secretKey)
+	b.WriteString("# Written by `cub server keycloak configure`.\n")
+	b.WriteString("#\n# 1. In spec.parameters.objects. If that secret is listed there already, add\n")
+	b.WriteString("#    only its jmesPath entry to the existing one.\n")
+	fmt.Fprintf(&b, "- objectName: %q\n  objectType: \"secretsmanager\"\n", remoteKey)
+	if property != "" {
+		// The driver writes every object as a file named after it, which a
+		// name with a slash in it cannot be, so such a name gets an alias.
+		if strings.Contains(remoteKey, "/") {
+			fmt.Fprintf(&b, "  objectAlias: %q\n", sanitize(remoteKey))
+		}
+		fmt.Fprintf(&b, "  jmesPath:\n    - path: %q\n      objectAlias: %q\n", property, secretKey)
+	} else {
+		fmt.Fprintf(&b, "  objectAlias: %q\n", secretKey)
+	}
+	b.WriteString("---\n")
+	fmt.Fprintf(&b, "# 2. In spec.secretObjects, in the data of the entry with secretName %s\n", serverSecret)
+	b.WriteString("#    (add that entry, type Opaque, if there is none).\n")
+	fmt.Fprintf(&b, "- objectName: %q\n  key: %q\n", secretKey, secretKey)
+	b.WriteString("---\n")
+	b.WriteString("# 3. The driver writes the Secret only while a pod mounts this class. If the\n")
+	b.WriteString("#    confighub Deployment does not already, add to spec.template.spec.volumes:\n")
+	fmt.Fprintf(&b, "- name: secrets-store\n  csi:\n    driver: secrets-store.csi.k8s.io\n    readOnly: true\n    volumeAttributes:\n      secretProviderClass: %q\n", class)
+	b.WriteString("---\n")
+	b.WriteString("# 4. And to the confighub container's volumeMounts:\n")
+	b.WriteString("- name: secrets-store\n  mountPath: /mnt/secrets-store\n  readOnly: true\n")
+	return []byte(b.String())
+}
+
 func (c *ConfigureOptions) report(u UI, out *configureOutputs, generated bool) error {
 	k := c.Keycloak
 	ns := c.Namespace
@@ -459,11 +522,24 @@ func (c *ConfigureOptions) report(u UI, out *configureOutputs, generated bool) e
 		"  " + out.serverConfigMap + "   ConfigMap " + serverConfigMap,
 		"  " + out.uiConfigMap + "   ConfigMap " + uiConfigMap,
 	}
-	if c.Secrets == SecretsExternal {
-		where := c.RemoteKey
-		if c.RemoteProperty != "" {
-			where += ", property " + c.RemoteProperty
-		}
+	where := c.RemoteKey
+	if c.RemoteProperty != "" {
+		where += ", property " + c.RemoteProperty
+	}
+	switch c.Secrets {
+	case SecretsStoreCSI:
+		lines = append(lines,
+			"  "+out.secretProviderClass+"   SecretProviderClass "+c.SecretProviderClass+", Deployment confighub",
+			"",
+			"The server's key goes in AWS Secrets Manager, not in the cluster. Store the",
+			"contents of "+out.clientKey,
+			"at "+where+". The confighub pod's service account needs read access",
+			"to that secret, the same as for anything else this class fetches.",
+			"",
+			"Then patch the ConfigMaps of what is running:",
+			"",
+		)
+	case SecretsExternal:
 		lines = append(lines,
 			"  "+out.externalSecretEntry+"   ExternalSecret "+c.ExternalSecret,
 			"",
@@ -477,7 +553,7 @@ func (c *ConfigureOptions) report(u UI, out *configureOutputs, generated bool) e
 			"",
 			fmt.Sprintf("  kubectl -n %s patch externalsecret %s --type json --patch-file %s", ns, c.ExternalSecret, out.externalSecretPatch),
 		)
-	} else {
+	default:
 		lines = append(lines,
 			"  "+out.secretPatch+"   Secret "+serverSecret,
 			"",

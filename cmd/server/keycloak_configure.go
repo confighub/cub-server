@@ -34,9 +34,10 @@ creates or updates, as needed:
 
 It then checks that Keycloak accepts the server's key, and writes merge patches
 for the server's and the UI's ConfigMaps, and for the server's key either a
-Secret patch or, with --secrets external-secrets, an entry for the
-ExternalSecret that produces that Secret plus the key as a file to put in your
-secret store. Merge them into your manifests, or apply them with the kubectl
+Secret patch or, when the Secret is produced from a secret store, the key as a
+file to put in the store plus what to add to the object that produces the
+Secret: an ExternalSecret (--secrets external-secrets) or a SecretProviderClass
+and the Deployment's volume (--secrets secrets-store-csi). Merge them into your manifests, or apply them with the kubectl
 commands it prints. Nothing here touches a cluster.
 
 Re-running it is safe. The realm is reconciled, and the server's key is read
@@ -55,7 +56,12 @@ Examples:
 
   with the server's Secret produced by External Secrets:
   cub server keycloak configure ... \
-    --secrets external-secrets --remote-key confighub/server --remote-property KEYCLOAK_CLIENT_PRIVATE_KEY_JWK`,
+    --secrets external-secrets --remote-key confighub/server --remote-property KEYCLOAK_CLIENT_PRIVATE_KEY_JWK
+
+  with the server's Secret synced by the Secrets Store CSI driver from AWS Secrets Manager:
+  cub server keycloak configure ... \
+    --secrets secrets-store-csi --secret-provider-class confighub \
+    --remote-key confighub/server --remote-property KEYCLOAK_CLIENT_PRIVATE_KEY_JWK`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ui := install.UI{Out: os.Stdout}
@@ -89,10 +95,11 @@ func init() {
 	f.StringVar(&o.OutDir, "out-dir", "", "Where to write the patches and keep the server's key (default ~/.confighub/keycloak/<keycloak host>/<realm>)")
 	f.StringVar(&o.ClientKeyFile, "client-key-file", "", "The server's key from an earlier run, if not kept in --out-dir")
 
-	f.StringVar(&o.Secrets, "secrets", "", "How the server's Secret is produced: kubernetes (default), or external-secrets for an ExternalSecret")
+	f.StringVar(&o.Secrets, "secrets", "", "How the server's Secret is produced: kubernetes (default), external-secrets for an ExternalSecret, or secrets-store-csi for the Secrets Store CSI driver with AWS Secrets Manager")
+	f.StringVar(&o.SecretProviderClass, "secret-provider-class", "", "With --secrets secrets-store-csi: the SecretProviderClass the server's Secret is synced through")
 	f.StringVar(&o.ExternalSecret, "external-secret", "", "With --secrets external-secrets: the ExternalSecret producing the server's Secret (default confighub-secret-env)")
-	f.StringVar(&o.RemoteKey, "remote-key", "", "With --secrets external-secrets: where in the secret store the server's key is kept")
-	f.StringVar(&o.RemoteProperty, "remote-property", "", "With --secrets external-secrets: the property within --remote-key, if it holds several values")
+	f.StringVar(&o.RemoteKey, "remote-key", "", "With --secrets external-secrets or secrets-store-csi: the secret-store entry the server's key is kept in")
+	f.StringVar(&o.RemoteProperty, "remote-property", "", "With --secrets external-secrets or secrets-store-csi: the property within --remote-key, if it holds several values")
 
 	keycloakCmd.AddCommand(keycloakConfigureCmd)
 }
