@@ -196,10 +196,10 @@ func renderIngress(opts Options) ([]byte, error) {
 	edits := namespaceEdits(docs, opts.Namespace)
 	// The host appears in a Traefik match expression rather than as a value of
 	// its own, so it is rewritten as the whole rule.
-	rule := fmt.Sprintf("Host(`%s`)", opts.Host)
+	host := fmt.Sprintf("Host(`%s`)", opts.Host)
 	edits = append(edits,
-		edit{doc: 1, path: "spec.routes.0.match", value: rule},
-		edit{doc: 2, path: "spec.routes.0.match", value: rule},
+		edit{doc: 1, path: "spec.routes.0.match", value: host},
+		edit{doc: 2, path: "spec.routes.0.match", value: host + " && !PathPrefix(`/internal`)"},
 	)
 	if err := apply(docs, edits); err != nil {
 		return nil, err

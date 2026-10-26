@@ -36,8 +36,9 @@ spec:
   - websecure
   routes:
   # /internal is not routed. It carries the liveness endpoint, pprof, and the
-  # shutdown handler, none of which should be reachable from outside.
-  - match: Host(`confighub.example.com`)
+  # shutdown handler, none of which should be reachable from outside, and the
+  # server serves it on the same port as the API.
+  - match: Host(`confighub.example.com`) && !PathPrefix(`/internal`)
     kind: Rule
     services:
     - name: confighub-api
