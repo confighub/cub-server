@@ -125,8 +125,9 @@ up by one command rather than two: they only produce a working login together.
 ### Org roles
 
 The server reads a user's org role from their Keycloak realm roles: `admin`, `manager`,
-`editor`, `user`, `viewer`, `creator` or `none`. Someone holding several gets the most
-privileged; someone holding none gets `creator`. Grant one to a person in the Keycloak console
+`editor`, `user`, `viewer`, `creator` or `none`. Give each person one: with several, the server
+takes the first it recognizes, in no order you control. Someone holding none gets `creator`.
+Grant one to a person in the Keycloak console
 (Users → Role mapping), or to a Keycloak group, or derive them from your provider:
 
 ```sh
