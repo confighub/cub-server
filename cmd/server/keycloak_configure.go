@@ -22,17 +22,18 @@ For an instance deployed from manifests you manage, with a Keycloak you run for
 it. 'keycloak install' is for the other case: it deploys Keycloak next to an
 instance this plugin installed, and applies everything itself.
 
-This signs in to Keycloak's admin API as a master-realm administrator and
-creates or updates, as needed:
+Run 'keycloak bootstrap' first: it creates the realm and the server's client,
+and is the one step that needs an administrator of the whole Keycloak. This
+signs in as the server's client, with the key bootstrap wrote, so it can reach
+this realm and nothing else. It creates or updates, as needed:
 
-  the realm, with organizations turned on
-  the server's client, which authenticates with a key generated here
+  organizations, turned on for the realm
   the CLI's client and the UI's client, returning only to --ui-url
   the organization users have to be members of
   the realm roles the server reads org roles from:
     admin, manager, editor, user, viewer, creator, none
 
-It then checks that Keycloak accepts the server's key, and writes merge patches
+It then writes merge patches
 for the server's and the UI's ConfigMaps, and for the server's key either a
 Secret patch or, when the Secret is produced from a secret store, the key as a
 file to put in the store plus what to add to the object that produces the
@@ -40,13 +41,8 @@ Secret: an ExternalSecret (--secrets external-secrets) or a SecretProviderClass
 and the Deployment's volume (--secrets secrets-store-csi). Merge them into your manifests, or apply them with the kubectl
 commands it prints. Nothing here touches a cluster.
 
-Re-running it is safe. The realm is reconciled, and the server's key is read
-back from --out-dir, or from --client-key-file. Without either, a new key is
-made and Keycloak is switched to it.
-
-The admin password is read from $KEYCLOAK_ADMIN_PASSWORD, or asked for. A
-master-realm client with the admin role can be used instead: --admin-client-id,
-with its secret in $KEYCLOAK_ADMIN_CLIENT_SECRET.
+Re-running it is safe: the realm is reconciled. The server's key is read from
+--out-dir, where bootstrap writes it, or from --client-key-file.
 
 Examples:
   cub server keycloak configure \
@@ -78,13 +74,10 @@ func init() {
 	f := keycloakConfigureCmd.Flags()
 	f.StringVar(&o.Keycloak.PublicURL, "keycloak-url", "", "Where browsers reach Keycloak. It is the issuer of every token, so it must be the address people use")
 	f.StringVar(&o.UIURL, "ui-url", "", "Where browsers reach the ConfigHub UI")
-	f.StringVar(&o.AdminURL, "admin-url", "", "Where this command reaches Keycloak's admin API, if not --keycloak-url")
+	f.StringVar(&o.AdminURL, "admin-url", "", "Where this command reaches Keycloak, if not --keycloak-url")
 	f.StringVar(&o.InternalURL, "internal-url", "", "Where the server reaches Keycloak, if not --keycloak-url")
 
-	f.StringVar(&o.Admin.User, "admin-user", "", "Master-realm admin user (default admin); password in $KEYCLOAK_ADMIN_PASSWORD")
-	f.StringVar(&o.Admin.ClientID, "admin-client-id", "", "Master-realm admin client to use instead of a user; secret in $KEYCLOAK_ADMIN_CLIENT_SECRET")
-
-	f.StringVar(&o.Keycloak.Realm, "realm", "", "Realm to create or update (default "+config.DefaultKeycloakRealm+")")
+	f.StringVar(&o.Keycloak.Realm, "realm", "", "Realm to set up, as bootstrapped (default "+config.DefaultKeycloakRealm+")")
 	f.StringVar(&o.Keycloak.Org, "org", "", "Organization users belong to, if the realm has none yet (default "+config.DefaultKeycloakOrg+")")
 	f.StringVar(&o.Keycloak.OrgDomain, "org-domain", "",
 		"Email domain of that organization (default "+config.DefaultKeycloakOrgDomain+")")
@@ -93,7 +86,7 @@ func init() {
 
 	f.StringVar(&o.Namespace, "namespace", "", "Namespace the instance runs in, for the kubectl commands printed (default "+install.DefaultNamespace+")")
 	f.StringVar(&o.OutDir, "out-dir", "", "Where to write the patches and keep the server's key (default ~/.confighub/keycloak/<keycloak host>/<realm>)")
-	f.StringVar(&o.ClientKeyFile, "client-key-file", "", "The server's key from an earlier run, if not kept in --out-dir")
+	f.StringVar(&o.ClientKeyFile, "client-key-file", "", "The server's key, as bootstrap wrote it, if not in --out-dir")
 
 	f.StringVar(&o.Secrets, "secrets", "", "How the server's Secret is produced: kubernetes (default), external-secrets for an ExternalSecret, or secrets-store-csi for the Secrets Store CSI driver with AWS Secrets Manager")
 	f.StringVar(&o.SecretProviderClass, "secret-provider-class", "", "With --secrets secrets-store-csi: the SecretProviderClass the server's Secret is synced through")

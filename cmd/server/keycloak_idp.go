@@ -45,9 +45,10 @@ value. Roles follow the provider at every sign-in; someone matching none gets
 creator. Re-run with a new set of --role-map to change it; roles mapped by an
 earlier run and not listed again are removed.
 
-For a Keycloak you run yourself (see 'keycloak configure'), pass --keycloak-url
-and an admin credential, as for configure. Otherwise this finds the instance's
-own Keycloak through its generated manifests.
+For a Keycloak you run yourself (see 'keycloak bootstrap'), pass --keycloak-url.
+This signs in as the server's client, with the key bootstrap wrote, so it needs
+no Keycloak administrator. Otherwise this finds the instance's own Keycloak
+through its generated manifests, and signs in the same way.
 
 Examples:
   cub server keycloak idp -i                  answer the questions
@@ -94,8 +95,8 @@ func init() {
 
 	f.StringVar(&keycloakIdPArgs.KeycloakURL, "keycloak-url", "", "A Keycloak you run, instead of the instance's own")
 	f.StringVar(&keycloakIdPArgs.Realm, "realm", "", "Realm on that Keycloak (default confighub)")
-	f.StringVar(&keycloakIdPArgs.Admin.User, "admin-user", "", "Master-realm admin user (default admin); password in $KEYCLOAK_ADMIN_PASSWORD")
-	f.StringVar(&keycloakIdPArgs.Admin.ClientID, "admin-client-id", "", "Master-realm admin client to use instead of a user; secret in $KEYCLOAK_ADMIN_CLIENT_SECRET")
+	f.StringVar(&keycloakIdPArgs.ClientKeyFile, "client-key-file", "", "With --keycloak-url: the server's key, as `keycloak bootstrap` wrote it (default: where bootstrap writes it)")
+	f.StringVar(&keycloakIdPArgs.ServerClientID, "server-client-id", "", "With --keycloak-url: the client the server authenticates as (default confighub)")
 
 	// The flags that locate the instance, matching the other keycloak commands.
 	f.StringVar(&keycloakIdPOpts.OutDir, "out-dir", "", "Directory holding the instance's generated manifests")

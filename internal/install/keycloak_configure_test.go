@@ -22,34 +22,56 @@ func configureOptionsFor(t *testing.T) *ConfigureOptions {
 	return c
 }
 
-// The key is what Keycloak holds the public half of, so a re-run must find the
-// one the last run made rather than rotate it.
-func TestClientKeyIsKeptBetweenRuns(t *testing.T) {
+// Bootstrap makes the key once and finds it again on a re-run: Keycloak holds
+// its public half, so a new one would cut off a server already using the old.
+func TestBootstrapClientKeyIsKeptBetweenRuns(t *testing.T) {
+	kept := filepath.Join(t.TempDir(), clientKeyFile)
+	first, generated, err := bootstrapClientKey("", kept)
+	if err != nil || !generated {
+		t.Fatalf("first run: generated=%v err=%v", generated, err)
+	}
+	if err := writeFile(kept, []byte(first+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	second, generated, err := bootstrapClientKey("", kept)
+	if err != nil || generated || second != first {
+		t.Fatalf("second run: generated=%v err=%v same=%v", generated, err, second == first)
+	}
+	if _, _, err := bootstrapClientKey(filepath.Join(t.TempDir(), "missing.jwk"), kept); err == nil {
+		t.Fatal("a missing --client-key-file made a new key")
+	}
+}
+
+// Configure never makes a key: it signs in with bootstrap's, and without one
+// it says to run bootstrap.
+func TestConfigureNeedsBootstrapsKey(t *testing.T) {
 	c := configureOptionsFor(t)
 	if err := c.defaults(); err != nil {
 		t.Fatal(err)
 	}
-	first, generated, err := c.clientKey()
-	if err != nil || !generated {
-		t.Fatalf("first run: generated=%v err=%v", generated, err)
+	if _, err := c.clientKey(); err == nil || !strings.Contains(err.Error(), "keycloak bootstrap") {
+		t.Fatalf("no key: err = %v, want it to point at bootstrap", err)
 	}
-	if _, err := c.writeOutputs(first); err != nil {
+	key, _ := config.GenerateClientKey()
+	if err := writeFile(filepath.Join(c.OutDir, clientKeyFile), []byte(key+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	second, generated, err := c.clientKey()
-	if err != nil || generated || second != first {
-		t.Fatalf("second run: generated=%v err=%v same=%v", generated, err, second == first)
+	if got, err := c.clientKey(); err != nil || got != key {
+		t.Fatalf("with bootstrap's key: err=%v same=%v", err, got == key)
 	}
+}
 
-	// A key file passed in wins, and one that is missing is an error rather
-	// than a reason to make a new key.
-	c.ClientKeyFile = filepath.Join(c.OutDir, clientKeyFile)
-	if got, _, err := c.clientKey(); err != nil || got != first {
-		t.Fatalf("--client-key-file: err=%v same=%v", err, got == first)
+// Without --out-dir, the patches and the key go under ~/.confighub, never into
+// whatever directory the command happens to run in.
+func TestConfigureDefaultsOutDir(t *testing.T) {
+	c := configureOptionsFor(t)
+	c.OutDir = ""
+	t.Setenv("HOME", t.TempDir())
+	if err := c.defaults(); err != nil {
+		t.Fatal(err)
 	}
-	c.ClientKeyFile = filepath.Join(c.OutDir, "missing.jwk")
-	if _, _, err := c.clientKey(); err == nil {
-		t.Fatal("a missing --client-key-file made a new key")
+	if !strings.Contains(c.OutDir, filepath.Join(".confighub", "keycloak", "kc.acme.com", "confighub")) {
+		t.Errorf("OutDir = %q", c.OutDir)
 	}
 }
 
@@ -61,7 +83,7 @@ func TestExternalSecretsOutputs(t *testing.T) {
 	if err := c.defaults(); err != nil {
 		t.Fatal(err)
 	}
-	key, _, err := c.clientKey()
+	key, err := config.GenerateClientKey()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +156,7 @@ func TestSecretsStoreCSIOutputs(t *testing.T) {
 	if err := c.defaults(); err != nil {
 		t.Fatal(err)
 	}
-	key, _, err := c.clientKey()
+	key, err := config.GenerateClientKey()
 	if err != nil {
 		t.Fatal(err)
 	}

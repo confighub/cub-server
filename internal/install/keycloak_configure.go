@@ -22,17 +22,17 @@ import (
 // configuration itself. Neither is true for an instance deployed from manifests
 // someone edited and applied on their own, with a Keycloak they run themselves:
 // there is no record to re-render, the cluster may refuse what this plugin would
-// apply, and the realm is created whenever this happens to run.
+// apply, and the realm is made whenever someone gets to it.
 //
 // So this does the two halves separately. Keycloak is set up through its admin
-// API, from the same realm document the bundled install imports. The server's
-// half is written out as patches for the caller to merge into their manifests
-// or apply to what is running. Nothing here touches a cluster.
+// API, from the same realm document the bundled install imports, signed in as
+// the server's client with the key `keycloak bootstrap` wrote: bootstrap made
+// the realm and that client, and this does the rest from inside the realm. The
+// server's half is written out as patches for the caller to merge into their
+// manifests or apply to what is running. Nothing here touches a cluster.
 //
-// It is safe to re-run. The realm is reconciled rather than replaced, and the
-// server's key is read back from the patch written last time. If that patch is
-// gone a new key is made and Keycloak is told about it, which is a rotation:
-// the server needs the new Secret before it can reach Keycloak again.
+// It is safe to re-run: the realm is reconciled rather than replaced, and the
+// key is bootstrap's, never made here.
 
 // ConfigureOptions is what `cub server keycloak configure` needs.
 type ConfigureOptions struct {
@@ -43,7 +43,6 @@ type ConfigureOptions struct {
 	// AdminURL is where this command reaches Keycloak's admin API, when that is
 	// not PublicURL (an admin hostname, or a port-forward).
 	AdminURL string
-	Admin    KeycloakAdminCredential
 
 	// UIURL is where browsers reach the ConfigHub UI. Keycloak sends people back
 	// there, and only there.
@@ -96,12 +95,9 @@ func RunConfigure(ctx context.Context, u UI, in io.Reader, c *ConfigureOptions) 
 	if err := c.defaults(); err != nil {
 		return err
 	}
-	if err := c.resolveCredential(in, u.Out); err != nil {
-		return err
-	}
 	k := &c.Keycloak
 
-	clientKey, generated, err := c.clientKey()
+	clientKey, err := c.clientKey()
 	if err != nil {
 		return err
 	}
@@ -118,36 +114,25 @@ func RunConfigure(ctx context.Context, u UI, in io.Reader, c *ConfigureOptions) 
 		return err
 	}
 
-	u.step("Connecting to Keycloak")
-	admin, err := newKeycloakAdminAt(ctx, c.AdminURL, k.Realm, c.Admin)
+	// As the server's own client: the realm's administrator, and nothing more.
+	// Creating the realm and that client is bootstrap's, the one step that
+	// needs an administrator of the whole Keycloak.
+	u.step("Signing in to realm %q as the server's client", k.Realm)
+	admin, err := newKeycloakRealmAdmin(ctx, c.AdminURL, k.Issuer(), k.Realm, k.ClientID, clientKey)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w\n    Has the realm been bootstrapped? That is the one step that needs a Keycloak administrator:\n"+
+			"      cub server keycloak bootstrap --keycloak-url %s --realm %s", err, k.PublicURL, k.Realm)
 	}
 	u.detail("%s", c.AdminURL)
 
 	u.step("Setting up realm %q", k.Realm)
-	exists, err := admin.realmExists(ctx)
+	enabled, err := admin.enableOrganizations(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("enabling organizations: %w", err)
 	}
-	if !exists {
-		if err := admin.createRealm(ctx, realm); err != nil {
-			return fmt.Errorf("creating realm %q: %w", k.Realm, err)
-		}
-		u.detail("created")
-	} else {
-		u.detail("exists; bringing it to the shape ConfigHub needs")
-		enabled, err := admin.enableOrganizations(ctx)
-		if err != nil {
-			return fmt.Errorf("enabling organizations: %w", err)
-		}
-		if enabled {
-			u.detail("turned on organizations")
-		}
+	if enabled {
+		u.detail("turned on organizations")
 	}
-
-	// On a realm just created these find everything in place. They run anyway,
-	// so the two paths end in the same state by the same checks.
 	for _, client := range realmClients(realm) {
 		changed, err := admin.reconcileClient(ctx, client)
 		if err != nil {
@@ -155,13 +140,6 @@ func RunConfigure(ctx context.Context, u UI, in io.Reader, c *ConfigureOptions) 
 		}
 		if changed {
 			u.detail("client %s: updated", client["clientId"])
-		}
-	}
-	for owner, grants := range realmServiceAccountGrants(realm) {
-		for roleClient, roles := range grants {
-			if err := admin.grantClientRoles(ctx, owner, roleClient, roles); err != nil {
-				return fmt.Errorf("granting %s %s roles: %w", owner, roleClient, err)
-			}
 		}
 	}
 	org, created, err := admin.ensureOrganization(ctx, k.Org, k.OrgDomain)
@@ -184,24 +162,11 @@ func RunConfigure(ctx context.Context, u UI, in io.Reader, c *ConfigureOptions) 
 		u.detail("org roles created: %s", strings.Join(roles, ", "))
 	}
 
-	// Written before the key is checked, not after: Keycloak already holds its
-	// public half, so a failed check has to leave the private half where a
-	// re-run will find it.
 	out, err := c.writeOutputs(clientKey)
 	if err != nil {
 		return err
 	}
-
-	// The server's credential, tried the way the server will use it. A key
-	// Keycloak does not accept fails here rather than as a server that will
-	// not start.
-	u.step("Checking the server's key")
-	if err := admin.checkClientKey(ctx, k.PublicURL, k.ClientID, clientKey); err != nil {
-		return err
-	}
-	u.detail("Keycloak accepts an assertion signed with it")
-
-	return c.report(u, out, generated)
+	return c.report(u, out)
 }
 
 func (c *ConfigureOptions) defaults() error {
@@ -266,6 +231,13 @@ func (c *ConfigureOptions) defaults() error {
 	if c.Secrets == SecretsStoreCSI && c.SecretProviderClass == "" {
 		return fmt.Errorf("--secrets %s needs --secret-provider-class: the SecretProviderClass the server's Secret is synced through", SecretsStoreCSI)
 	}
+	if c.OutDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("cannot determine a home directory for the generated config: %w", err)
+		}
+		c.OutDir = keycloakWorkDir(home, k.PublicURL, k.Realm)
+	}
 	return nil
 }
 
@@ -276,12 +248,8 @@ const (
 	adminClientSecretEnv = "KEYCLOAK_ADMIN_CLIENT_SECRET"
 )
 
-// resolveCredential settles which admin credential to use, asking for the
-// password when it is the only thing missing.
-func (c *ConfigureOptions) resolveCredential(in io.Reader, out io.Writer) error {
-	return resolveAdminCredential(&c.Admin, in, out)
-}
-
+// resolveAdminCredential settles which master-realm credential bootstrap
+// uses, asking for the password when it is the only thing missing.
 func resolveAdminCredential(cred *KeycloakAdminCredential, in io.Reader, out io.Writer) error {
 	if cred.ClientID != "" {
 		if cred.User != "" {
@@ -319,27 +287,33 @@ func resolveAdminCredential(cred *KeycloakAdminCredential, in io.Reader, out io.
 const clientKeyFile = "keycloak-client-key.jwk"
 
 // clientKey returns the server's key: the one passed with --client-key-file,
-// else the one the last run kept in --out-dir, else a new one. generated says
-// it is new, so Keycloak is about to be switched to it.
-func (c *ConfigureOptions) clientKey() (key string, generated bool, err error) {
+// else the one bootstrap kept in --out-dir.
+func (c *ConfigureOptions) clientKey() (string, error) {
 	path := c.ClientKeyFile
 	if path == "" {
 		path = filepath.Join(c.OutDir, clientKeyFile)
 	}
-	content, err := os.ReadFile(path)
-	switch {
-	case err == nil:
-		key := strings.TrimSpace(string(content))
-		if _, err := config.ClientJWKS(key); err != nil {
-			return "", false, fmt.Errorf("%s does not hold the server's Ed25519 key: %w", path, err)
-		}
-		return key, false, nil
-	case os.IsNotExist(err) && c.ClientKeyFile == "":
-		key, err := config.GenerateClientKey()
-		return key, true, err
-	default:
-		return "", false, err
+	key, err := readClientKey(path)
+	if os.IsNotExist(err) {
+		return "", fmt.Errorf("no server key at %s.\n"+
+			"    It is made by bootstrap, the one step that needs a Keycloak administrator:\n"+
+			"      cub server keycloak bootstrap --keycloak-url %s --realm %s\n"+
+			"    or pass the key bootstrap wrote elsewhere with --client-key-file", path, c.Keycloak.PublicURL, c.Keycloak.Realm)
 	}
+	return key, err
+}
+
+// readClientKey reads a server key file and checks it holds one.
+func readClientKey(path string) (string, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	key := strings.TrimSpace(string(content))
+	if _, err := config.ClientJWKS(key); err != nil {
+		return "", fmt.Errorf("%s does not hold the server's Ed25519 key: %w", path, err)
+	}
+	return key, nil
 }
 
 // configureOutputs are the files a run writes, by what they are for.
@@ -507,7 +481,7 @@ func secretProviderClassEntries(class, secretKey, remoteKey, property string) []
 	return []byte(b.String())
 }
 
-func (c *ConfigureOptions) report(u UI, out *configureOutputs, generated bool) error {
+func (c *ConfigureOptions) report(u UI, out *configureOutputs) error {
 	k := c.Keycloak
 	ns := c.Namespace
 	lines := []string{
@@ -573,12 +547,13 @@ func (c *ConfigureOptions) report(u UI, out *configureOutputs, generated bool) e
 		"after their first sign-in, or map it from your identity provider with",
 		"`cub server keycloak idp --role-map`.",
 	)
-	if generated {
-		lines = append(lines, "",
-			"A new server key was made. If this realm was set up before, the server",
-			"cannot reach Keycloak until it has the new key. Keep "+out.clientKey+",",
-			"or pass it back with --client-key-file, so the next run reuses it.")
-	}
 	u.section("Keycloak is set up for ConfigHub.", lines...)
 	return nil
+}
+
+// keycloakWorkDir is where bootstrap and configure keep what they share for one
+// realm: the server's key, and configure's patches.
+func keycloakWorkDir(home, publicURL, realm string) string {
+	host, _ := url.Parse(publicURL)
+	return filepath.Join(home, ".confighub", "keycloak", sanitize(host.Host), realm)
 }
