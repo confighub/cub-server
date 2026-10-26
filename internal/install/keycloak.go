@@ -323,9 +323,11 @@ func secretValue(outDir, key string) (string, error) {
 	return value, nil
 }
 
-// configureRealmClaims finishes the realm through the admin API, for the parts a
-// realm import cannot express. Today that is one mapper; see
-// enableOrganizationIDClaim for why it is not in the imported document.
+// configureRealmClaims finishes the realm through the admin API, for the parts
+// that are not in the imported document: the organization-id mapper (see
+// enableOrganizationIDClaim for why) and the org roles, which go through the
+// same call `keycloak configure` uses so that a realm imported before they
+// existed gets them on a re-run.
 func configureRealmClaims(ctx context.Context, o *Options) error {
 	// The StatefulSet being ready says the pod answers inside the cluster. This
 	// dials the host port, which can reset connections for a moment after.
@@ -338,6 +340,9 @@ func configureRealmClaims(ctx context.Context, o *Options) error {
 	}
 	if err := admin.enableOrganizationIDClaim(ctx); err != nil {
 		return fmt.Errorf("configuring the organization claim: %w", err)
+	}
+	if _, err := admin.ensureRealmRoles(ctx); err != nil {
+		return fmt.Errorf("creating the org roles: %w", err)
 	}
 	return nil
 }

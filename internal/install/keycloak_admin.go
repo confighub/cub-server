@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -32,12 +36,19 @@ import (
 // authenticates once and then prompts will fail on the write with a 401 that
 // reads like a permissions problem.
 
-// keycloakAdmin talks to Keycloak's admin API as its bootstrap administrator.
+// keycloakAdmin talks to Keycloak's admin API as an administrator in the
+// master realm: the bootstrap administrator of the bundled Keycloak, or for one
+// the caller runs, whatever admin user or client they hand `configure`.
 type keycloakAdmin struct {
-	base     string // browser-facing base URL, which is also what this dials
-	realm    string
-	user     string
-	password string
+	base  string // what this dials; for the bundled Keycloak, the browser's URL
+	realm string
+
+	// One of the two: a user signing in with a password, or a confidential
+	// client in the master realm with a service account.
+	user         string
+	password     string
+	clientID     string
+	clientSecret string
 
 	client *http.Client
 
@@ -87,6 +98,34 @@ func newKeycloakAdmin(ctx context.Context, o *Options) (*keycloakAdmin, error) {
 	return admin, nil
 }
 
+// KeycloakAdminCredential is how `configure` signs in to a Keycloak it did not
+// install: a master-realm admin user, or a master-realm client whose service
+// account holds the admin role. Exactly one of the two.
+type KeycloakAdminCredential struct {
+	User         string
+	Password     string
+	ClientID     string
+	ClientSecret string
+}
+
+// newKeycloakAdminAt administers realm on the Keycloak at base, with an
+// explicit credential instead of one read from an install's record.
+func newKeycloakAdminAt(ctx context.Context, base, realm string, cred KeycloakAdminCredential) (*keycloakAdmin, error) {
+	admin := &keycloakAdmin{
+		base:         strings.TrimSuffix(base, "/"),
+		realm:        realm,
+		user:         cred.User,
+		password:     cred.Password,
+		clientID:     cred.ClientID,
+		clientSecret: cred.ClientSecret,
+		client:       &http.Client{Timeout: 30 * time.Second},
+	}
+	if _, err := admin.accessToken(ctx); err != nil {
+		return nil, err
+	}
+	return admin, nil
+}
+
 // accessToken returns a usable admin token, fetching a new one when the last is
 // older than tokenLifetime.
 func (k *keycloakAdmin) accessToken(ctx context.Context) (string, error) {
@@ -103,6 +142,15 @@ func (k *keycloakAdmin) accessToken(ctx context.Context) (string, error) {
 		"username":   {k.user},
 		"password":   {k.password},
 	}
+	credential := "admin password"
+	if k.clientID != "" {
+		form = url.Values{
+			"grant_type":    {"client_credentials"},
+			"client_id":     {k.clientID},
+			"client_secret": {k.clientSecret},
+		}
+		credential = "admin client " + k.clientID
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", err
@@ -116,7 +164,7 @@ func (k *keycloakAdmin) accessToken(ctx context.Context) (string, error) {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Keycloak refused the admin password (%d): %s", resp.StatusCode, truncateBody(body))
+		return "", fmt.Errorf("Keycloak refused the %s (%d): %s", credential, resp.StatusCode, truncateBody(body))
 	}
 
 	var out struct {
@@ -134,6 +182,12 @@ func (k *keycloakAdmin) accessToken(ctx context.Context) (string, error) {
 // path is relative to the realm, so callers read as the thing they are doing
 // rather than as URL assembly.
 func (k *keycloakAdmin) do(ctx context.Context, method, path string, body, into any) error {
+	return k.doAt(ctx, method, "/admin/realms/"+k.realm+path, body, into)
+}
+
+// doAt performs one admin API call at a path relative to Keycloak's root, for
+// the few calls that are not about the realm, such as creating it.
+func (k *keycloakAdmin) doAt(ctx context.Context, method, path string, body, into any) error {
 	token, err := k.accessToken(ctx)
 	if err != nil {
 		return err
@@ -148,7 +202,7 @@ func (k *keycloakAdmin) do(ctx context.Context, method, path string, body, into 
 		payload = bytes.NewReader(encoded)
 	}
 
-	endpoint := k.base + "/admin/realms/" + k.realm + path
+	endpoint := k.base + path
 	req, err := http.NewRequestWithContext(ctx, method, endpoint, payload)
 	if err != nil {
 		return err
@@ -166,7 +220,7 @@ func (k *keycloakAdmin) do(ctx context.Context, method, path string, body, into 
 	raw, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("%s %s: %d %s", method, path, resp.StatusCode, truncateBody(raw))
+		return &keycloakAPIError{method: method, path: path, status: resp.StatusCode, body: truncateBody(raw)}
 	}
 	if into != nil && len(raw) > 0 {
 		if err := json.Unmarshal(raw, into); err != nil {
@@ -239,17 +293,67 @@ func (k *keycloakAdmin) updateOrganization(ctx context.Context, org *keycloakOrg
 	return k.do(ctx, http.MethodPut, "/organizations/"+org.ID, body, nil)
 }
 
-// importIdPConfig asks Keycloak to read an OpenID discovery document and return
-// the provider configuration described by it.
+// importIdPConfigFrom asks Keycloak to read a provider's OpenID discovery
+// document or SAML metadata and return the provider configuration it describes.
 //
-// Keycloak fetches the URL itself, from inside the cluster. That is worth
-// knowing when it fails: the address has to be reachable from Keycloak, not from
-// the machine running this command.
-func (k *keycloakAdmin) importIdPConfig(ctx context.Context, discoveryURL string) (map[string]string, error) {
+// Keycloak fetches the URL itself, from where it runs. That is worth knowing
+// when it fails: the address has to be reachable from Keycloak, not from the
+// machine running this command.
+func (k *keycloakAdmin) importIdPConfigFrom(ctx context.Context, providerID, from string) (map[string]string, error) {
 	var config map[string]string
-	body := map[string]string{"fromUrl": discoveryURL, "providerId": "oidc"}
+	body := map[string]string{"fromUrl": from, "providerId": providerID}
 	if err := k.do(ctx, http.MethodPost, "/identity-provider/import-config", body, &config); err != nil {
-		return nil, fmt.Errorf("reading the discovery document at %s: %w", discoveryURL, err)
+		return nil, fmt.Errorf("reading the provider's configuration at %s: %w", from, err)
+	}
+	return config, nil
+}
+
+// importIdPConfigFile is importIdPConfigFrom for metadata in a local file,
+// uploaded to Keycloak rather than fetched by it.
+func (k *keycloakAdmin) importIdPConfigFile(ctx context.Context, providerID, path string) (map[string]string, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	if err := form.WriteField("providerId", providerID); err != nil {
+		return nil, err
+	}
+	part, err := form.CreateFormFile("file", filepath.Base(path))
+	if err != nil {
+		return nil, err
+	}
+	if _, err := part.Write(content); err != nil {
+		return nil, err
+	}
+	if err := form.Close(); err != nil {
+		return nil, err
+	}
+
+	token, err := k.accessToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+	endpoint := k.base + "/admin/realms/" + k.realm + "/identity-provider/import-config"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", form.FormDataContentType())
+	resp, err := k.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("reading the metadata in %s: %d %s", path, resp.StatusCode, truncateBody(raw))
+	}
+	var config map[string]string
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return nil, fmt.Errorf("reading the metadata in %s: %w", path, err)
 	}
 	return config, nil
 }
@@ -259,28 +363,79 @@ func (k *keycloakAdmin) importIdPConfig(ctx context.Context, discoveryURL string
 // The endpoint is /identity-provider/instances -- singular, unlike the
 // organization's /identity-providers, which is the sort of thing that costs an
 // afternoon if it is not written down.
-func (k *keycloakAdmin) createIdP(ctx context.Context, alias, displayName string, config map[string]string) error {
+//
+// trustEmail is set because the provider is the company's own directory: an
+// address it vouches for needs no second verification by mail, and without it
+// Keycloak asks people to verify an address before they can finish signing in.
+func (k *keycloakAdmin) createIdP(ctx context.Context, alias, displayName, providerID string, config map[string]string) error {
 	body := map[string]any{
 		"alias":       alias,
 		"displayName": displayName,
-		"providerId":  "oidc",
+		"providerId":  providerID,
 		"enabled":     true,
+		"trustEmail":  true,
 		"config":      config,
 	}
 	return k.do(ctx, http.MethodPost, "/identity-provider/instances", body, nil)
 }
 
+// idpProviderID says whether a registered provider is "oidc" or "saml".
+func (k *keycloakAdmin) idpProviderID(ctx context.Context, alias string) (string, error) {
+	var idp struct {
+		ProviderID string `json:"providerId"`
+	}
+	err := k.do(ctx, http.MethodGet, "/identity-provider/instances/"+alias, nil, &idp)
+	return idp.ProviderID, err
+}
+
+// keycloakIdPMapper is a provider mapper: what Keycloak does with an attribute
+// or claim the provider sends.
+type keycloakIdPMapper struct {
+	ID     string            `json:"id,omitempty"`
+	Name   string            `json:"name"`
+	Alias  string            `json:"identityProviderAlias"`
+	Mapper string            `json:"identityProviderMapper"`
+	Config map[string]string `json:"config"`
+}
+
+func (k *keycloakAdmin) idpMappers(ctx context.Context, alias string) ([]keycloakIdPMapper, error) {
+	var mappers []keycloakIdPMapper
+	err := k.do(ctx, http.MethodGet, "/identity-provider/instances/"+alias+"/mappers", nil, &mappers)
+	return mappers, err
+}
+
+// saveIdPMapper creates the mapper, or updates it when it has an id.
+func (k *keycloakAdmin) saveIdPMapper(ctx context.Context, alias string, m keycloakIdPMapper) error {
+	if m.ID == "" {
+		return k.do(ctx, http.MethodPost, "/identity-provider/instances/"+alias+"/mappers", m, nil)
+	}
+	return k.do(ctx, http.MethodPut, "/identity-provider/instances/"+alias+"/mappers/"+m.ID, m, nil)
+}
+
+func (k *keycloakAdmin) deleteIdPMapper(ctx context.Context, alias, id string) error {
+	return k.do(ctx, http.MethodDelete, "/identity-provider/instances/"+alias+"/mappers/"+id, nil, nil)
+}
+
+// uiURL is where the UI is, read off the UI client's redirect URI, which is
+// the UI's origin. Empty when the realm has no such client.
+func (k *keycloakAdmin) uiURL(ctx context.Context) (string, error) {
+	client, err := k.clientByID(ctx, config.DefaultKeycloakUIClientID)
+	if err != nil || client == nil {
+		return "", err
+	}
+	uris, _ := client["redirectUris"].([]any)
+	for _, u := range uris {
+		if s, ok := u.(string); ok && s != "" {
+			return strings.TrimSuffix(s, "/"), nil
+		}
+	}
+	return "", nil
+}
+
 // idpExists reports whether an identity provider of this alias is already there,
 // so the flow can say so rather than fail with a conflict.
 func (k *keycloakAdmin) idpExists(ctx context.Context, alias string) (bool, error) {
-	err := k.do(ctx, http.MethodGet, "/identity-provider/instances/"+alias, nil, nil)
-	if err == nil {
-		return true, nil
-	}
-	if strings.Contains(err.Error(), "404") {
-		return false, nil
-	}
-	return false, err
+	return k.exists(ctx, "/identity-provider/instances/"+alias)
 }
 
 // linkIdPToOrg attaches the identity provider to the organization, which is what
@@ -297,6 +452,36 @@ func (k *keycloakAdmin) linkIdPToOrg(ctx context.Context, orgID, alias string) e
 // Built from the browser-facing URL, because that is who follows it.
 func (k *keycloakAdmin) RedirectURI(alias string) string {
 	return fmt.Sprintf("%s/realms/%s/broker/%s/endpoint", k.base, k.realm, alias)
+}
+
+// keycloakAPIError is an admin API call Keycloak answered with something other
+// than success, kept typed so a 404 can be told from a failure.
+type keycloakAPIError struct {
+	method, path string
+	status       int
+	body         string
+}
+
+func (e *keycloakAPIError) Error() string {
+	return fmt.Sprintf("%s %s: %d %s", e.method, e.path, e.status, e.body)
+}
+
+func isNotFound(err error) bool {
+	var apiErr *keycloakAPIError
+	return errors.As(err, &apiErr) && apiErr.status == http.StatusNotFound
+}
+
+// exists reports whether a GET of path in the realm finds something.
+func (k *keycloakAdmin) exists(ctx context.Context, path string) (bool, error) {
+	err := k.do(ctx, http.MethodGet, path, nil, nil)
+	switch {
+	case err == nil:
+		return true, nil
+	case isNotFound(err):
+		return false, nil
+	default:
+		return false, err
+	}
 }
 
 // truncateBody keeps an error readable: Keycloak answers some failures with a

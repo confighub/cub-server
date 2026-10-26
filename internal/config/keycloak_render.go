@@ -71,6 +71,12 @@ func indexOf(segment string) (int, error) {
 	return index, err
 }
 
+// RenderRealm is the realm document for k, as Keycloak's importer and its
+// create-realm endpoint both read it.
+func RenderRealm(k *Keycloak, clientJWKS string) ([]byte, error) {
+	return renderRealm(k, clientJWKS)
+}
+
 // renderRealm produces the realm Keycloak imports on first start.
 //
 // The client ids are written rather than assumed even though the literal
@@ -92,6 +98,7 @@ func renderRealm(k *Keycloak, clientJWKS string) ([]byte, error) {
 		value any
 	}{
 		{"realm", k.Realm},
+		{"sslRequired", k.SSLRequired},
 		{"organizations.0.name", k.Org},
 		{"organizations.0.alias", k.Org},
 		{"organizations.0.domains.0.name", k.OrgDomain},
