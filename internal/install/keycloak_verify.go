@@ -1,57 +1,17 @@
 package install
 
 import (
-	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"strings"
 	"time"
 
 	"github.com/confighub/sdk/core/jwk"
 
 	"github.com/confighub/cub-server/internal/config"
 )
-
-// checkClientKey asks Keycloak for a token as the server's client, signing the
-// assertion with the server's key, which is what the server does on startup.
-//
-// The assertion's audience is the realm's issuer, built from publicURL: that is
-// what Keycloak checks it against, whichever address the request arrives on.
-func (k *keycloakAdmin) checkClientKey(ctx context.Context, publicURL, clientID, privateJWK string) error {
-	assertion, err := signClientAssertion(privateJWK, clientID,
-		fmt.Sprintf("%s/realms/%s", strings.TrimSuffix(publicURL, "/"), k.realm))
-	if err != nil {
-		return err
-	}
-	form := url.Values{
-		"grant_type":            {"client_credentials"},
-		"client_id":             {clientID},
-		"client_assertion_type": {"urn:ietf:params:oauth:client-assertion-type:jwt-bearer"},
-		"client_assertion":      {assertion},
-	}
-	endpoint := fmt.Sprintf("%s/realms/%s/protocol/openid-connect/token", k.base, k.realm)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := k.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("Keycloak refused the server's key for client %q (%d): %s", clientID, resp.StatusCode, truncateBody(body))
-	}
-	return nil
-}
 
 // signClientAssertion builds an RFC 7523 client assertion signed with an
 // Ed25519 private JWK, with the kid Keycloak selects the public half by.

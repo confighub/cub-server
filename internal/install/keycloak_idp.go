@@ -7,6 +7,8 @@ import (
 	"io"
 	"maps"
 	"net/url"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -75,12 +77,15 @@ type IdPOptions struct {
 	// instance already has.
 	Interactive bool
 
-	// KeycloakURL, Realm and Admin locate a Keycloak this plugin did not
-	// install, the one `keycloak configure` set up. Empty KeycloakURL means the
-	// instance's own, found through its generated manifests.
-	KeycloakURL string
-	Realm       string
-	Admin       KeycloakAdminCredential
+	// KeycloakURL and Realm locate a Keycloak this plugin did not install, the
+	// one `keycloak bootstrap` set up. This signs in to it as the server's
+	// client (ServerClientID), with the key in ClientKeyFile or where bootstrap
+	// wrote it. Empty KeycloakURL means the instance's own, found through its
+	// generated manifests.
+	KeycloakURL    string
+	Realm          string
+	ServerClientID string
+	ClientKeyFile  string
 
 	roles []roleMapping
 }
@@ -100,11 +105,23 @@ func RunIdP(ctx context.Context, u UI, in io.Reader, o *Options, idp *IdPOptions
 		if idp.Realm == "" {
 			idp.Realm = config.DefaultKeycloakRealm
 		}
-		if err := resolveAdminCredential(&idp.Admin, in, u.Out); err != nil {
-			return err
+		if idp.ServerClientID == "" {
+			idp.ServerClientID = config.DefaultKeycloakClientID
 		}
-		var err error
-		if admin, err = newKeycloakAdminAt(ctx, idp.KeycloakURL, idp.Realm, idp.Admin); err != nil {
+		base := strings.TrimSuffix(idp.KeycloakURL, "/")
+		keyPath := idp.ClientKeyFile
+		if keyPath == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return err
+			}
+			keyPath = filepath.Join(keycloakWorkDir(home, base, idp.Realm), clientKeyFile)
+		}
+		key, err := readClientKey(keyPath)
+		if err != nil {
+			return fmt.Errorf("the server's key: %w\n    Pass the file `keycloak bootstrap` wrote with --client-key-file", err)
+		}
+		if admin, err = newKeycloakRealmAdmin(ctx, base, base+"/realms/"+idp.Realm, idp.Realm, idp.ServerClientID, key); err != nil {
 			return err
 		}
 	} else {

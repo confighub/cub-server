@@ -166,22 +166,35 @@ Keycloak of its own.
 
 `keycloak install` works on an instance this plugin installed and applies everything itself. If
 you deployed ConfigHub from manifests you manage (say, the output of `install --dry-run`, edited
-for your cluster), and run Keycloak yourself, use `configure` instead:
+for your cluster), and run Keycloak yourself, it takes two commands.
+
+The first is the only one that needs an administrator of the whole Keycloak:
 
 ```sh
 export KEYCLOAK_ADMIN_PASSWORD=...   # a master-realm administrator
+cub server keycloak bootstrap --keycloak-url https://keycloak.acme.com
+```
+
+It creates the realm with one client, the server's, which signs in with a key generated here
+(Keycloak holds only the public half). That client's service account administers this realm and
+nothing else on the Keycloak. The key is written to `keycloak-client-key.jwk`; whoever runs
+bootstrap can hand it to whoever runs ConfigHub. A master-realm client can stand in for the admin
+user (`--admin-client-id`, secret in `$KEYCLOAK_ADMIN_CLIENT_SECRET`).
+
+Everything else signs in as the server's client, with that key:
+
+```sh
 cub server keycloak configure \
   --keycloak-url https://keycloak.acme.com \
   --ui-url https://confighub.acme.com \
   --org acme --org-domain acme.com
 ```
 
-It creates or updates the realm through Keycloak's admin API: organizations on, the server's
-client with a key generated here, the CLI's and the UI's clients, the organization, and the org
-roles. It checks that Keycloak accepts the server's key, then writes merge patches for the
-server's ConfigMap (`confighub-env`) and Secret (`confighub-secret-env`) and the UI's ConfigMap
-(`confighub-ui-env`). Merge them into your manifests, or apply them with the `kubectl patch`
-commands it prints. It never touches the cluster.
+It sets up the rest of the realm: organizations on, the CLI's and the UI's clients, the
+organization, and the org roles. Then it writes merge patches for the server's ConfigMap
+(`confighub-env`) and Secret (`confighub-secret-env`) and the UI's ConfigMap (`confighub-ui-env`).
+Merge them into your manifests, or apply them with the `kubectl patch` commands it prints. It
+never touches the cluster.
 
 If External Secrets produces the server's Secret, a patch on that Secret lasts only until the
 next sync. Pass `--secrets external-secrets --remote-key <path> [--remote-property <name>]`
@@ -192,10 +205,9 @@ With the Secrets Store CSI driver and AWS Secrets Manager, pass `--secrets secre
 file, the entries to add to that SecretProviderClass, and the volume the `confighub` Deployment
 needs, since the driver writes a Secret only while a pod mounts the class.
 
-Keep the output directory: re-running reads the server's key back from it, or from
-`--client-key-file` if you keep it elsewhere. A master-realm client
-can stand in for the admin user (`--admin-client-id`, secret in `$KEYCLOAK_ADMIN_CLIENT_SECRET`).
-The other `keycloak idp` flags work the same against this Keycloak with `--keycloak-url`.
+Both read the key from `~/.confighub/keycloak/<keycloak host>/<realm>` (or `--out-dir`), or from
+`--client-key-file` if you keep it elsewhere. `keycloak idp` works against this Keycloak with
+`--keycloak-url`, signing in the same way.
 
 ## Which server version
 

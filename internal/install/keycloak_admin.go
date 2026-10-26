@@ -36,19 +36,30 @@ import (
 // authenticates once and then prompts will fail on the write with a 401 that
 // reads like a permissions problem.
 
-// keycloakAdmin talks to Keycloak's admin API as an administrator in the
-// master realm: the bootstrap administrator of the bundled Keycloak, or for one
-// the caller runs, whatever admin user or client they hand `configure`.
+// keycloakAdmin talks to Keycloak's admin API about one realm.
+//
+// It signs in one of two ways. As a master-realm administrator -- a user with a
+// password, or a confidential client with a secret -- which can do anything on
+// that Keycloak, including create the realm; `keycloak bootstrap` is the one
+// command that needs this. Or as the ConfigHub server's own client, with the
+// server's key, whose service account administers this realm and no other;
+// everything after bootstrap signs in that way.
 type keycloakAdmin struct {
 	base  string // what this dials; for the bundled Keycloak, the browser's URL
 	realm string
 
-	// One of the two: a user signing in with a password, or a confidential
-	// client in the master realm with a service account.
+	// A master-realm administrator: a user signing in with a password, or a
+	// confidential client with a service account.
 	user         string
 	password     string
 	clientID     string
 	clientSecret string
+
+	// Or the server's client in this realm: clientID with this private key.
+	// issuer is the realm as tokens name it, which an assertion's audience has
+	// to be, whatever address this dials.
+	clientKey string
+	issuer    string
 
 	client *http.Client
 
@@ -61,8 +72,9 @@ type keycloakAdmin struct {
 // land on a token that expired in flight.
 const tokenLifetime = 30 * time.Second
 
-// newKeycloakAdmin resolves everything needed to administer this instance's
-// Keycloak: where it is, which realm, and the password to get in with.
+// newKeycloakAdmin administers the realm of an instance this plugin installed
+// Keycloak for, signing in as the server's client with the key its generated
+// Secret holds.
 func newKeycloakAdmin(ctx context.Context, o *Options) (*keycloakAdmin, error) {
 	if err := requireKeycloakInstalled(o); err != nil {
 		return nil, err
@@ -76,31 +88,42 @@ func newKeycloakAdmin(ctx context.Context, o *Options) (*keycloakAdmin, error) {
 	if err != nil {
 		return nil, err
 	}
-	password, err := keycloakAdminPassword(ctx, o)
+	clientID, err := keycloakSetting(o, "KEYCLOAK_CLIENT_ID")
 	if err != nil {
-		return nil, fmt.Errorf("the Keycloak admin password: %w", err)
+		return nil, err
 	}
+	prior, _, _, err := readPrior(o.OutDir)
+	if err != nil {
+		return nil, err
+	}
+	key := prior[config.KeycloakClientKeyEnv]
+	if key == "" {
+		return nil, fmt.Errorf("%s is not in the generated secret in %s", config.KeycloakClientKeyEnv, o.OutDir)
+	}
+	return newKeycloakRealmAdmin(ctx, base, fmt.Sprintf("%s/realms/%s", base, realm), realm, clientID, key)
+}
 
-	// The username is the constant the StatefulSet was rendered with. Nothing
-	// exposes it as a flag, so there is no install where it is something else.
+// newKeycloakRealmAdmin administers realm as the server's client, signing in
+// with its key. Fails here, rather than at the first call, when Keycloak does
+// not accept the key or the realm does not exist.
+func newKeycloakRealmAdmin(ctx context.Context, base, issuer, realm, clientID, privateJWK string) (*keycloakAdmin, error) {
 	admin := &keycloakAdmin{
-		base:     base,
-		realm:    realm,
-		user:     config.DefaultKeycloakAdminUser,
-		password: password,
-		client:   &http.Client{Timeout: 30 * time.Second},
+		base:      strings.TrimSuffix(base, "/"),
+		realm:     realm,
+		clientID:  clientID,
+		clientKey: privateJWK,
+		issuer:    issuer,
+		client:    &http.Client{Timeout: 30 * time.Second},
 	}
-	// Fail here rather than at the first write, so a wrong password is reported
-	// before the caller has answered any questions.
 	if _, err := admin.accessToken(ctx); err != nil {
 		return nil, err
 	}
 	return admin, nil
 }
 
-// KeycloakAdminCredential is how `configure` signs in to a Keycloak it did not
-// install: a master-realm admin user, or a master-realm client whose service
-// account holds the admin role. Exactly one of the two.
+// KeycloakAdminCredential is how `keycloak bootstrap` signs in to a Keycloak
+// it did not install: a master-realm admin user, or a master-realm client whose
+// service account holds the admin role. Exactly one of the two.
 type KeycloakAdminCredential struct {
 	User         string
 	Password     string
@@ -108,8 +131,8 @@ type KeycloakAdminCredential struct {
 	ClientSecret string
 }
 
-// newKeycloakAdminAt administers realm on the Keycloak at base, with an
-// explicit credential instead of one read from an install's record.
+// newKeycloakAdminAt administers realm on the Keycloak at base as a
+// master-realm administrator.
 func newKeycloakAdminAt(ctx context.Context, base, realm string, cred KeycloakAdminCredential) (*keycloakAdmin, error) {
 	admin := &keycloakAdmin{
 		base:         strings.TrimSuffix(base, "/"),
@@ -143,7 +166,22 @@ func (k *keycloakAdmin) accessToken(ctx context.Context) (string, error) {
 		"password":   {k.password},
 	}
 	credential := "admin password"
-	if k.clientID != "" {
+	switch {
+	case k.clientKey != "":
+		// The realm's own token endpoint: the server's client lives there.
+		endpoint = fmt.Sprintf("%s/realms/%s/protocol/openid-connect/token", k.base, k.realm)
+		assertion, err := signClientAssertion(k.clientKey, k.clientID, k.issuer)
+		if err != nil {
+			return "", err
+		}
+		form = url.Values{
+			"grant_type":            {"client_credentials"},
+			"client_id":             {k.clientID},
+			"client_assertion_type": {"urn:ietf:params:oauth:client-assertion-type:jwt-bearer"},
+			"client_assertion":      {assertion},
+		}
+		credential = "server's key for client " + k.clientID + " in realm " + k.realm
+	case k.clientID != "":
 		form = url.Values{
 			"grant_type":    {"client_credentials"},
 			"client_id":     {k.clientID},
