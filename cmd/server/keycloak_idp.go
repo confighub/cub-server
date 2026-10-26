@@ -29,19 +29,36 @@ it works and then does not.
 
 Keycloak joins the two with an email domain. This command sets the
 organization's name and domain, registers the provider, links them, and prints
-the redirect URI to register at your provider's end.
+what to register at your provider's end.
 
-Your provider needs an OpenID Connect application registered for ConfigHub --
-Keycloak reads the rest from its discovery document, so you supply one URL plus
-that application's client id and secret. Okta, Entra ID, Google Workspace and
-Auth0 all publish one.
+OpenID Connect: register an application for ConfigHub at your provider and pass
+its discovery URL, client id and secret. Keycloak reads the rest from the
+discovery document.
+
+SAML: pass the provider's metadata, as a URL Keycloak can fetch or as an
+exported file, and the attribute carrying each person's email. Then register
+Keycloak at the provider from the service-provider metadata URL this prints.
+
+Org roles: --role-attribute names the SAML attribute or OIDC claim listing a
+person's groups, and each --role-map value=role gives the org role for one
+value. Roles follow the provider at every sign-in; someone matching none gets
+creator. Re-run with a new set of --role-map to change it; roles mapped by an
+earlier run and not listed again are removed.
+
+For a Keycloak you run yourself (see 'keycloak configure'), pass --keycloak-url
+and an admin credential, as for configure. Otherwise this finds the instance's
+own Keycloak through its generated manifests.
 
 Examples:
   cub server keycloak idp -i                  answer the questions
   cub server keycloak idp \
     --discovery-url https://acme.okta.com/.well-known/openid-configuration \
     --client-id 0oa1b2c3 --client-secret ... \
-    --org "Acme Corp" --org-domain acme.com`,
+    --org "Acme Corp" --org-domain acme.com
+  cub server keycloak idp --keycloak-url https://keycloak.acme.com \
+    --saml-metadata-file pingfederate-metadata.xml --alias pingfederate \
+    --email-attribute mail --org-domain acme.com \
+    --role-attribute memberOf --role-map "CN=confighub-admins,OU=Groups,DC=acme,DC=com=admin"`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		keycloakIdPArgs.Interactive = keycloakIdPInter
@@ -63,7 +80,22 @@ func init() {
 	f.StringVar(&keycloakIdPArgs.DiscoveryURL, "discovery-url", "", "The provider's OpenID discovery document")
 	f.StringVar(&keycloakIdPArgs.ClientID, "client-id", "", "Client id of the application registered for ConfigHub at the provider")
 	f.StringVar(&keycloakIdPArgs.ClientSecret, "client-secret", "", "Client secret of that application")
-	f.StringVar(&keycloakIdPArgs.Alias, "alias", "", "Short name for the provider; appears in the redirect URI (default: guessed from the discovery URL)")
+	f.StringVar(&keycloakIdPArgs.ClientAuthMethod, "client-auth-method", "", "How Keycloak presents the client secret: client_secret_post (default) or client_secret_basic")
+	f.StringVar(&keycloakIdPArgs.Alias, "alias", "", "Short name for the provider; appears in the redirect URI (default: guessed from the discovery or metadata URL)")
+
+	f.StringVar(&keycloakIdPArgs.SAMLMetadataURL, "saml-metadata-url", "", "A SAML provider's metadata URL, fetched by Keycloak")
+	f.StringVar(&keycloakIdPArgs.SAMLMetadataFile, "saml-metadata-file", "", "A SAML provider's metadata, exported to a file")
+	f.StringVar(&keycloakIdPArgs.EmailAttribute, "email-attribute", "", "SAML attribute carrying the email address; the organization's domain is matched against it")
+	f.StringVar(&keycloakIdPArgs.FirstNameAttribute, "first-name-attribute", "", "SAML attribute carrying the first name")
+	f.StringVar(&keycloakIdPArgs.LastNameAttribute, "last-name-attribute", "", "SAML attribute carrying the last name")
+
+	f.StringVar(&keycloakIdPArgs.RoleAttribute, "role-attribute", "", "SAML attribute or OIDC claim whose values --role-map maps to org roles")
+	f.StringArrayVar(&keycloakIdPArgs.RoleMap, "role-map", nil, "value=role: the org role for one value of --role-attribute (repeatable)")
+
+	f.StringVar(&keycloakIdPArgs.KeycloakURL, "keycloak-url", "", "A Keycloak you run, instead of the instance's own")
+	f.StringVar(&keycloakIdPArgs.Realm, "realm", "", "Realm on that Keycloak (default confighub)")
+	f.StringVar(&keycloakIdPArgs.Admin.User, "admin-user", "", "Master-realm admin user (default admin); password in $KEYCLOAK_ADMIN_PASSWORD")
+	f.StringVar(&keycloakIdPArgs.Admin.ClientID, "admin-client-id", "", "Master-realm admin client to use instead of a user; secret in $KEYCLOAK_ADMIN_CLIENT_SECRET")
 
 	// The flags that locate the instance, matching the other keycloak commands.
 	f.StringVar(&keycloakIdPOpts.OutDir, "out-dir", "", "Directory holding the instance's generated manifests")

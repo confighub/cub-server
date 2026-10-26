@@ -160,48 +160,6 @@ func Build(opts Options, prior Preserved) (*Surface, error) {
 	// a realm, auth URL and redirect URI as all-or-nothing, and half of them is
 	// fatal rather than ignored.
 	if kc := opts.Keycloak; kc != nil {
-		add(Var{
-			Name: "KEYCLOAK_REALM", Placement: InConfigMap, Value: kc.Realm,
-			Doc: "Realm this instance's users live in.",
-		})
-		add(Var{
-			Name: "KEYCLOAK_AUTH_URL", Placement: InConfigMap, Value: kc.PublicURL,
-			Doc: "Where a browser reaches Keycloak, and so the issuer of every token it mints.",
-		})
-		add(Var{
-			Name: "KEYCLOAK_INTERNAL_URL", Placement: InConfigMap, Value: kc.InternalURL(opts.Namespace),
-			Doc: "Where the server reaches Keycloak. The address above is the browser's and does not resolve in here.",
-		})
-		add(Var{
-			Name: "KEYCLOAK_CLIENT_ID", Placement: InConfigMap, Value: kc.ClientID,
-			Doc: "The client the server authenticates as.",
-		})
-		add(Var{
-			Name: "KEYCLOAK_DEVICE_CLIENT_ID", Placement: InConfigMap, Value: kc.DeviceClientID,
-			Doc: "The public client cub authenticates through. Public because it runs on the user's machine.",
-		})
-
-		// What lets the UI sign in as its own OAuth client.
-		//
-		// The three go together and mean one thing: the browser runs OIDC against
-		// the issuer, gets a token stamped with the audience, and exchanges it at
-		// the server for a ConfigHub one. The client id is the UI's to know, so
-		// it goes to the UI container; the issuer and audience are what the
-		// server checks, so they go to the server, which advertises them in
-		// /api/info.
-		add(Var{
-			Name: "CONFIGHUB_UI_OAUTH_CLIENT_ID", Placement: InUIConfigMap, Value: kc.UIClientID,
-			Doc: "The client the UI signs in as. Without it the UI can only be entered with `cub auth browser-session`.",
-		})
-		add(Var{
-			Name: "CONFIGHUB_AUTH_ISSUER", Placement: InConfigMap, Value: kc.Issuer(),
-			Doc: "Realm the UI runs OIDC against, and the issuer of the tokens the server exchanges.",
-		})
-		add(Var{
-			Name: "CONFIGHUB_TOKEN_EXCHANGE_AUDIENCE", Placement: InConfigMap, Value: kc.Audience(),
-			Doc: "Audience this instance requires in a token it will exchange; the UI client emits it.",
-		})
-
 		clientKey, generated, err := keep(KeycloakClientKeyEnv, GenerateClientKey)
 		if err != nil {
 			return nil, fmt.Errorf("resolving the Keycloak client key: %w", err)
@@ -209,10 +167,12 @@ func Build(opts Options, prior Preserved) (*Surface, error) {
 		// The server's whole credential. Replacing it would leave Keycloak
 		// holding the public half of a key nobody signs with any more, so it is
 		// preserved across re-runs like every other generated value.
-		add(Var{
-			Name: KeycloakClientKeyEnv, Placement: InSecret, Value: clientKey, Generated: generated,
-			Doc: "Signs this server's assertions to Keycloak. Replaces both a client secret and an admin password.",
-		})
+		for _, v := range kc.Vars(kc.InternalURL(opts.Namespace), clientKey) {
+			if v.Name == KeycloakClientKeyEnv {
+				v.Generated = generated
+			}
+			add(v)
+		}
 
 		bootstrapPassword, generated, err := keep(keycloakBootstrapPasswordVar, RandomSecret)
 		if err != nil {

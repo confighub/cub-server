@@ -96,7 +96,7 @@ cub auth browser-session
 
 ### Connecting your identity provider
 
-While you can use keycloak to manage users directly, in most cases you will want to connect a ConfigHub organization to your company's identity provider using OIDC or SAML. Only OIDC is currently supported by this cli plugin:
+While you can use keycloak to manage users directly, in most cases you will want to connect a ConfigHub organization to your company's identity provider using OIDC or SAML:
 
 ```sh
 cub server keycloak idp -i
@@ -108,10 +108,36 @@ end. Okta, Entra ID, Google Workspace and Auth0 all publish a discovery document
 replaces naming each endpoint. It finishes by printing a redirect URI to register with your
 provider — sign-in fails on the way back without it.
 
+For a SAML provider, pass its metadata and the attribute carrying each person's email, then
+register Keycloak at the provider from the service-provider metadata URL the command prints:
+
+```sh
+cub server keycloak idp --saml-metadata-file pingfederate.xml --alias pingfederate \
+  --org "Acme" --org-domain acme.com \
+  --email-attribute mail --first-name-attribute givenName --last-name-attribute sn
+```
+
 The email domain is not cosmetic. ConfigHub resolves a user's organization from their token and
 shows anyone who belongs to none a pending-approval page, and the domain is what makes someone
 arriving through your provider a member. That is why the organization and the provider are set
 up by one command rather than two: they only produce a working login together.
+
+### Org roles
+
+The server reads a user's org role from their Keycloak realm roles: `admin`, `manager`,
+`editor`, `user`, `viewer`, `creator` or `none`. Someone holding several gets the most
+privileged; someone holding none gets `creator`. Grant one to a person in the Keycloak console
+(Users → Role mapping), or to a Keycloak group, or derive them from your provider:
+
+```sh
+cub server keycloak idp --alias pingfederate \
+  --role-attribute memberOf \
+  --role-map "CN=confighub-admins,OU=Groups,DC=acme,DC=com=admin" \
+  --role-map "CN=confighub-viewers,OU=Groups,DC=acme,DC=com=viewer"
+```
+
+Mapped roles follow the provider at every sign-in, so removing someone from the group removes
+the role. Re-running with a different set of `--role-map` replaces the earlier set.
 
 ### The Keycloak console
 
@@ -134,6 +160,31 @@ separate Secret that only Keycloak reads, so it is not in the server's environme
 The bundled Keycloak runs in development mode with an embedded database, which is what lets it
 come up on a laptop with no certificate and no DNS. An instance serving real users wants a
 Keycloak of its own.
+
+### A Keycloak you run, for an instance you deployed
+
+`keycloak install` works on an instance this plugin installed and applies everything itself. If
+you deployed ConfigHub from manifests you manage (say, the output of `install --dry-run`, edited
+for your cluster), and run Keycloak yourself, use `configure` instead:
+
+```sh
+export KEYCLOAK_ADMIN_PASSWORD=...   # a master-realm administrator
+cub server keycloak configure \
+  --keycloak-url https://keycloak.acme.com \
+  --ui-url https://confighub.acme.com \
+  --org acme --org-domain acme.com
+```
+
+It creates or updates the realm through Keycloak's admin API: organizations on, the server's
+client with a key generated here, the CLI's and the UI's clients, the organization, and the org
+roles. It checks that Keycloak accepts the server's key, then writes merge patches for the
+server's ConfigMap (`confighub-env`) and Secret (`confighub-secret-env`) and the UI's ConfigMap
+(`confighub-ui-env`). Merge them into your manifests, or apply them with the `kubectl patch`
+commands it prints. It never touches the cluster.
+
+Keep the output directory: re-running reads the server's key back from it. A master-realm client
+can stand in for the admin user (`--admin-client-id`, secret in `$KEYCLOAK_ADMIN_CLIENT_SECRET`).
+The other `keycloak idp` flags work the same against this Keycloak with `--keycloak-url`.
 
 ## Which server version
 

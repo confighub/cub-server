@@ -110,6 +110,11 @@ type Keycloak struct {
 	// OrgDomain is that organization's email domain. See DefaultKeycloakOrgDomain.
 	OrgDomain string
 
+	// SSLRequired is the realm's sslRequired: "none" for the bundled Keycloak,
+	// which a laptop reaches over plain http on localhost, and "external" for a
+	// Keycloak behind TLS. Empty means "none".
+	SSLRequired string
+
 	AdminUser   string
 	Image       string
 	NodePort    int
@@ -144,6 +149,66 @@ func (k *Keycloak) Defaults() {
 	}
 	if k.StorageSize == "" {
 		k.StorageSize = "1Gi"
+	}
+	if k.SSLRequired == "" {
+		k.SSLRequired = "none"
+	}
+}
+
+// Vars is the server's and the UI's configuration for this Keycloak, in the
+// order it is rendered.
+//
+// One list for both ways it is delivered: an install renders it into the
+// manifests it applies, and `keycloak configure` hands it to whoever applies
+// their own. internalURL is where the server dials Keycloak when that is not
+// PublicURL; empty omits it, and the server then dials PublicURL.
+func (k *Keycloak) Vars(internalURL, clientKey string) []Var {
+	return []Var{
+		{
+			Name: "KEYCLOAK_REALM", Placement: InConfigMap, Value: k.Realm,
+			Doc: "Realm this instance's users live in.",
+		},
+		{
+			Name: "KEYCLOAK_AUTH_URL", Placement: InConfigMap, Value: k.PublicURL,
+			Doc: "Where a browser reaches Keycloak, and so the issuer of every token it mints.",
+		},
+		{
+			Name: "KEYCLOAK_INTERNAL_URL", Placement: InConfigMap, Value: internalURL,
+			Doc: "Where the server reaches Keycloak. The address above is the browser's and does not resolve in here.",
+		},
+		{
+			Name: "KEYCLOAK_CLIENT_ID", Placement: InConfigMap, Value: k.ClientID,
+			Doc: "The client the server authenticates as.",
+		},
+		{
+			Name: "KEYCLOAK_DEVICE_CLIENT_ID", Placement: InConfigMap, Value: k.DeviceClientID,
+			Doc: "The public client cub authenticates through. Public because it runs on the user's machine.",
+		},
+
+		// What lets the UI sign in as its own OAuth client.
+		//
+		// The three go together and mean one thing: the browser runs OIDC against
+		// the issuer, gets a token stamped with the audience, and exchanges it at
+		// the server for a ConfigHub one. The client id is the UI's to know, so
+		// it goes to the UI container; the issuer and audience are what the
+		// server checks, so they go to the server, which advertises them in
+		// /api/info.
+		{
+			Name: "CONFIGHUB_UI_OAUTH_CLIENT_ID", Placement: InUIConfigMap, Value: k.UIClientID,
+			Doc: "The client the UI signs in as. Without it the UI can only be entered with `cub auth browser-session`.",
+		},
+		{
+			Name: "CONFIGHUB_AUTH_ISSUER", Placement: InConfigMap, Value: k.Issuer(),
+			Doc: "Realm the UI runs OIDC against, and the issuer of the tokens the server exchanges.",
+		},
+		{
+			Name: "CONFIGHUB_TOKEN_EXCHANGE_AUDIENCE", Placement: InConfigMap, Value: k.Audience(),
+			Doc: "Audience this instance requires in a token it will exchange; the UI client emits it.",
+		},
+		{
+			Name: KeycloakClientKeyEnv, Placement: InSecret, Value: clientKey,
+			Doc: "Signs this server's assertions to Keycloak. Replaces both a client secret and an admin password.",
+		},
 	}
 }
 
