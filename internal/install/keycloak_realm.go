@@ -239,9 +239,9 @@ func (k *keycloakAdmin) ensureOrganization(ctx context.Context, name, domain str
 	return org, true, err
 }
 
-// orgRoles are the realm roles the server reads a user's org role from, most
-// privileged first. The server takes the most privileged one a token carries
-// and gives creator to a token that carries none.
+// orgRoles are the realm roles the server reads a user's org role from. A user
+// is meant to hold one: the server takes the first it recognizes and gives
+// creator to a token that carries none.
 var orgRoles = []string{"admin", "manager", "editor", "user", "viewer", "creator", "none"}
 
 // ensureRealmRoles creates the org roles the realm is missing, and returns the
@@ -264,7 +264,7 @@ func (k *keycloakAdmin) ensureRealmRoles(ctx context.Context) ([]string, error) 
 		}
 		body := map[string]any{
 			"name":        role,
-			"description": "ConfigHub org role. A user holding several gets the most privileged; one holding none gets creator.",
+			"description": "ConfigHub org role. Give each user one; a user holding none gets creator.",
 		}
 		if err := k.do(ctx, http.MethodPost, "/roles", body, nil); err != nil {
 			return created, fmt.Errorf("creating realm role %q: %w", role, err)
