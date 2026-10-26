@@ -48,7 +48,7 @@ func (s *Surface) Get(name string) string {
 
 // Preserved is what a previous run generated, keyed by variable name.
 //
-// Re-running the generator must not rotate anything: a fresh JWT_PRIVATE_KEY_JWK
+// Re-running the generator must not rotate anything: a fresh CONFIGHUB_TOKEN_SIGNING_KEY_JWK
 // invalidates every session on the next restart, and a fresh
 // WORKER_MASTER_SECRET breaks every worker already enrolled. Installers re-run,
 // so the safe behaviour has to be the default one, not a flag.
@@ -186,12 +186,17 @@ func Build(opts Options, prior Preserved) (*Surface, error) {
 
 	// --- Secret -----------------------------------------------------------
 
-	signingKey, generated, err := keep("JWT_PRIVATE_KEY_JWK", GenerateSigningKey)
+	// An install rendered before the rename holds its key under the old name.
+	// Carried over rather than regenerated, because a new key logs everyone out.
+	if prior[SigningKeyEnv] == "" && prior[legacySigningKeyEnv] != "" {
+		prior[SigningKeyEnv] = prior[legacySigningKeyEnv]
+	}
+	signingKey, generated, err := keep(SigningKeyEnv, GenerateSigningKey)
 	if err != nil {
 		return nil, fmt.Errorf("resolving the token signing key: %w", err)
 	}
 	add(Var{
-		Name: "JWT_PRIVATE_KEY_JWK", Placement: InSecret, Value: signingKey, Generated: generated,
+		Name: SigningKeyEnv, Placement: InSecret, Value: signingKey, Generated: generated,
 		Doc: "Signs every ConfigHub token. Unset, the server mints a new one per start and every restart logs everyone out.",
 	})
 

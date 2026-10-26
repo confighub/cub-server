@@ -75,7 +75,7 @@ administrator at all, so there is no way to obtain one through the API first.`,
 
 var keySigningCmd = &cobra.Command{
 	Use:   "signing",
-	Short: "Generate the token signing key (JWT_PRIVATE_KEY_JWK)",
+	Short: "Generate the token signing key (CONFIGHUB_TOKEN_SIGNING_KEY_JWK)",
 	Long: `Generate the RSA key the server signs every ConfigHub token with.
 
 The server treats this as optional, and that is the trap: unset, it mints a

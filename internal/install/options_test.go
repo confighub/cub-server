@@ -167,7 +167,7 @@ func TestReadPriorRoundTripsGeneratedValues(t *testing.T) {
 		t.Fatalf("readPrior: %v", err)
 	}
 
-	for _, key := range []string{"JWT_PRIVATE_KEY_JWK", "WORKER_MASTER_SECRET", "POSTGRES_PASSWORD"} {
+	for _, key := range []string{"CONFIGHUB_TOKEN_SIGNING_KEY_JWK", "WORKER_MASTER_SECRET", "POSTGRES_PASSWORD"} {
 		if prior[key] == "" {
 			t.Errorf("%s was not recovered; re-running would rotate it", key)
 		}
