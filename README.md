@@ -187,6 +187,10 @@ If External Secrets produces the server's Secret, a patch on that Secret lasts o
 next sync. Pass `--secrets external-secrets --remote-key <path> [--remote-property <name>]`
 instead: the key is written to `keycloak-client-key.jwk` for you to put in your secret store,
 and an entry for the ExternalSecret (default `confighub-secret-env`) replaces the Secret patch.
+With the Secrets Store CSI driver and AWS Secrets Manager, pass `--secrets secrets-store-csi
+--secret-provider-class <name> --remote-key <secret> [--remote-property <name>]`: you get the key
+file, the entries to add to that SecretProviderClass, and the volume the `confighub` Deployment
+needs, since the driver writes a Secret only while a pod mounts the class.
 
 Keep the output directory: re-running reads the server's key back from it, or from
 `--client-key-file` if you keep it elsewhere. A master-realm client
