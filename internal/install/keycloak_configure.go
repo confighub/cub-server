@@ -124,6 +124,9 @@ func RunConfigure(ctx context.Context, u UI, in io.Reader, c *ConfigureOptions) 
 			"      cub server keycloak bootstrap --keycloak-url %s --realm %s", err, k.PublicURL, k.Realm)
 	}
 	u.detail("%s", c.AdminURL)
+	if err := checkKeycloakVersion(ctx, u, admin); err != nil {
+		return err
+	}
 
 	u.step("Setting up realm %q", k.Realm)
 	enabled, err := admin.enableOrganizations(ctx)

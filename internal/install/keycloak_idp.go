@@ -133,6 +133,9 @@ func RunIdP(ctx context.Context, u UI, in io.Reader, o *Options, idp *IdPOptions
 			return err
 		}
 	}
+	if err := checkKeycloakVersion(ctx, u, admin); err != nil {
+		return err
+	}
 	org, err := admin.organization(ctx)
 	if err != nil {
 		return err
