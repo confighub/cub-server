@@ -24,6 +24,10 @@ spec:
       securityContext:
         seccompProfile:
           type: RuntimeDefault
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 3000
+        fsGroup: 2000
       initContainers:
       # init-and-migrate does both jobs in one pass: it creates the migration
       # tables if they are not there, then migrates. Two containers running
@@ -46,6 +50,9 @@ spec:
           runAsNonRoot: true
           allowPrivilegeEscalation: false
           privileged: false
+          capabilities:
+            drop:
+            - ALL
         resources:
           requests:
             cpu: 128m
@@ -103,6 +110,9 @@ spec:
           runAsNonRoot: true
           allowPrivilegeEscalation: false
           privileged: false
+          capabilities:
+            drop:
+            - ALL
       # Spread replicas across nodes, best effort. Inert at one replica, which is
       # what an install creates; it matters the moment anyone scales up.
       #
