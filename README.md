@@ -168,6 +168,10 @@ Keycloak of its own.
 you deployed ConfigHub from manifests you manage (say, the output of `install --dry-run`, edited
 for your cluster), and run Keycloak yourself, it takes two commands.
 
+They need Keycloak 26.7, the release ConfigHub runs and the one `keycloak install` deploys. Each
+command reads Keycloak's version and refuses an older one, since the admin API they use changed in
+26.7; a newer one gets a warning.
+
 The first is the only one that needs an administrator of the whole Keycloak:
 
 ```sh

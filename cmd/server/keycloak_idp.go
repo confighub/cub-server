@@ -95,7 +95,7 @@ func init() {
 
 	f.StringVar(&keycloakIdPArgs.KeycloakURL, "keycloak-url", "", "A Keycloak you run, instead of the instance's own")
 	f.StringVar(&keycloakIdPArgs.Realm, "realm", "", "Realm on that Keycloak (default confighub)")
-	f.StringVar(&keycloakIdPArgs.ClientKeyFile, "client-key-file", "", "With --keycloak-url: the server's key, as `keycloak bootstrap` wrote it (default: where bootstrap writes it)")
+	f.StringVar(&keycloakIdPArgs.ClientKeyFile, "client-key-file", "", "With --keycloak-url: the server's key, as keycloak bootstrap wrote it (default: where bootstrap writes it)")
 	f.StringVar(&keycloakIdPArgs.ServerClientID, "server-client-id", "", "With --keycloak-url: the client the server authenticates as (default confighub)")
 
 	// The flags that locate the instance, matching the other keycloak commands.

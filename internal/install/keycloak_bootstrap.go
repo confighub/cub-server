@@ -100,6 +100,9 @@ func RunBootstrap(ctx context.Context, u UI, in io.Reader, b *BootstrapOptions) 
 		return err
 	}
 	u.detail("%s", b.AdminURL)
+	if err := checkKeycloakVersion(ctx, u, admin); err != nil {
+		return err
+	}
 
 	u.step("Bootstrapping realm %q", k.Realm)
 	exists, err := admin.realmExists(ctx)
