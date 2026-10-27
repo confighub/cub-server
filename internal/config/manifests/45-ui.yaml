@@ -40,13 +40,20 @@ spec:
       # in here for every Service in the namespace, and CONFIGHUB_* is the
       # prefix this image reads its configuration from.
       enableServiceLinks: false
+      # nginx serves files and never calls the Kubernetes API.
+      automountServiceAccountToken: false
       securityContext:
         seccompProfile:
           type: RuntimeDefault
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 3000
+        fsGroup: 2000
       containers:
       - name: ui
         image: ghcr.io/confighub/ui:latest
         imagePullPolicy: IfNotPresent
+        terminationMessagePolicy: FallbackToLogsOnError
         envFrom:
         - configMapRef:
             name: confighub-ui-env
@@ -68,3 +75,6 @@ spec:
           runAsNonRoot: true
           allowPrivilegeEscalation: false
           privileged: false
+          capabilities:
+            drop:
+            - ALL
