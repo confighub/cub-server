@@ -266,6 +266,20 @@ you apply (they also work as kustomize patches), or run the `kubectl patch` comm
 `--apply` patches the running Deployments itself, server first, and waits for each rollout. The
 manifests still need the same change, or their next apply undoes the upgrade.
 
+## Checking an instance
+
+```sh
+cub server check                                           # the server of cub's current context
+cub server check --url https://confighub-api.example.com
+```
+
+`check` asks the API where the UI, the OCI registry and the identity provider are (`/api/info`)
+and tries each from this machine. It changes nothing and reads nothing from the cluster. Run it
+after changing how the instance is exposed: `cub cluster attach` gives Argo CD and Flux the
+registry address the server advertises, and an install's NodePort address keeps being advertised
+after the instance moves behind a load balancer. Set `OCI_EXTERNAL_HOST` and `OCI_EXTERNAL_PORT`
+in the `confighub-env` ConfigMap to where the registry really answers.
+
 ## Where it runs
 
 With nothing named, an install creates a kind cluster. Name a kubeconfig context and it installs
