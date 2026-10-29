@@ -18,9 +18,26 @@ spec:
       labels:
         app: confighub-postgres
     spec:
+      # Meets the Pod Security Standards "restricted" level, which clusters that
+      # enforce it apply to every namespace. 70 is the postgres user of the
+      # alpine image; the entrypoint, started as that user rather than root,
+      # skips the chown it would otherwise need, and fsGroup makes the volume
+      # writable to it.
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
       containers:
       - name: postgres
         image: postgres:17-alpine
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
         env:
         - name: POSTGRES_DB
           value: confighub
