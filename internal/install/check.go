@@ -153,8 +153,34 @@ func checkRegistry(ctx context.Context, client *http.Client, api string, info *a
 		resp.Header.Get("Docker-Distribution-Api-Version") == "" {
 		r.err = fmt.Errorf("GET /v2/ answered HTTP %d, which is not a registry", resp.StatusCode)
 		r.hints = registryHints(info)
+		return r
+	}
+	// A 401 names where to get a token, and every pull goes there first. The
+	// server builds that address from the request it received, so behind a load
+	// balancer that terminates TLS and adds no X-Forwarded-Proto (an NLB) it
+	// says http, where nothing listens.
+	if realm := challengeRealm(resp.Header.Get("WWW-Authenticate")); realm != "" {
+		tresp, err := get(ctx, client, realm)
+		if err != nil {
+			r.err = fmt.Errorf("the registry answers, but its token endpoint %s does not: %w", realm, err)
+			r.hints = append(reachHints(err),
+				"Pulls fetch a token there first. Set OCI_TOKEN_REALM in the confighub-env ConfigMap to "+r.target+"/token, "+
+					"which is needed when the load balancer in front of the registry terminates TLS without adding X-Forwarded-Proto.")
+			return r
+		}
+		tresp.Body.Close()
 	}
 	return r
+}
+
+// challengeRealm reads the realm from a Bearer WWW-Authenticate header.
+func challengeRealm(header string) string {
+	_, rest, ok := strings.Cut(header, `realm="`)
+	if !ok {
+		return ""
+	}
+	realm, _, _ := strings.Cut(rest, `"`)
+	return realm
 }
 
 // registryHints says where a registry address comes from, so a wrong one can

@@ -135,6 +135,28 @@ func TestRegistryAnsweringPlainHTTPBehindHTTPSAPI(t *testing.T) {
 	}
 }
 
+// The token endpoint behind an NLB that terminates TLS is advertised as http,
+// where nothing answers: the registry passes and every pull still fails.
+func TestRegistryWithUnreachableTokenRealm(t *testing.T) {
+	gone := httptest.NewServer(http.NotFoundHandler())
+	gone.Close()
+	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="`+gone.URL+`/token",service="ConfigHub OCI Registry"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(registry.Close)
+	host, port := hostPort(t, registry.URL)
+	api := apiServer(t, false, func() apiInfo { return apiInfo{OCIHost: host, OCIPort: port} })
+
+	r := resultNamed(t, runChecks(context.Background(), &http.Client{Transport: &http.Transport{}}, api.URL), "Registry")
+	if r.err == nil || !strings.Contains(r.err.Error(), "token endpoint") {
+		t.Fatalf("err = %v, want the token endpoint named", r.err)
+	}
+	if !strings.Contains(strings.Join(r.hints, "\n"), "OCI_TOKEN_REALM") {
+		t.Errorf("hints = %q", r.hints)
+	}
+}
+
 func TestNoRegistryAdvertised(t *testing.T) {
 	api := apiServer(t, false, func() apiInfo { return apiInfo{Version: "v0.9.10"} })
 	r := resultNamed(t, runChecks(context.Background(), api.Client(), api.URL), "Registry")
