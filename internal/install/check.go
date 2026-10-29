@@ -166,7 +166,7 @@ func registryHints(info *apiInfo) []string {
 	if port, err := strconv.Atoi(info.OCIPort); err == nil && port >= 30000 && port <= 32767 && !isAddressHost(info.OCIHost) {
 		hints = append(hints, fmt.Sprintf(
 			"Port %d is in the NodePort range: probably the OCI_EXTERNAL_PORT 'cub server install' set for a local install. "+
-				"Expose the registry (container port 9092, Service confighub) the way the API is exposed, then set OCI_EXTERNAL_PORT "+
+				"Expose the registry (Service confighub-oci-server, port 9092) the way the API is exposed, then set OCI_EXTERNAL_PORT "+
 				"to the port it answers on (443 behind TLS) and OCI_EXTERNAL_HOST to its name if that is not %s.", port, info.OCIHost))
 	}
 	return hints
