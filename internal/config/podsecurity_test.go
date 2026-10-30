@@ -9,13 +9,23 @@ import (
 
 // Clusters that enforce the Pod Security Standards' restricted level refuse
 // pods that do not meet it, and they refuse them at pod creation: the
-// Deployment is accepted and its ReplicaSet never gets a pod. Every workload an
-// install renders has to meet it.
+// Deployment is accepted and its ReplicaSet never gets a pod. The namespace an
+// install creates enforces it, so every workload an install renders has to meet it.
 func TestWorkloadsMeetRestrictedPodSecurity(t *testing.T) {
 	files := renderFiles(t, Options{
 		Namespace: "confighub", Image: "img:v1", UIImage: "ui:v1",
 		APIURL: "http://localhost:32180", UIURL: "http://localhost:32183",
+		Keycloak: testKeycloak(),
 	})
+	var ns struct {
+		Metadata struct{ Labels map[string]string }
+	}
+	if err := yaml.Unmarshal([]byte(files[ConfigDir+"/00-namespace.yaml"]), &ns); err != nil {
+		t.Fatal(err)
+	}
+	if got := ns.Metadata.Labels["pod-security.kubernetes.io/enforce"]; got != "restricted" {
+		t.Errorf("namespace enforces %q, want restricted", got)
+	}
 	checked := 0
 	for path, content := range files {
 		dec := yaml.NewDecoder(strings.NewReader(content))
@@ -46,8 +56,8 @@ func TestWorkloadsMeetRestrictedPodSecurity(t *testing.T) {
 			}
 		}
 	}
-	if checked < 3 {
-		t.Fatalf("checked %d workloads; expected the server, the UI and the database", checked)
+	if checked < 4 {
+		t.Fatalf("checked %d workloads; expected the server, the UI, the database and Keycloak", checked)
 	}
 }
 

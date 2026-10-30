@@ -50,9 +50,23 @@ spec:
       labels:
         app: confighub-keycloak
     spec:
+      # Meets the Pod Security Standards "restricted" level, which the namespace
+      # enforces. 1000 is the keycloak user of the image, which owns
+      # /opt/keycloak; fsGroup makes the volume writable to it.
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
       containers:
       - name: keycloak
         image: quay.io/keycloak/keycloak:26.7.3
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
         # start-dev, and deliberately. It runs an embedded database and relaxes
         # the checks a production Keycloak makes about TLS and hostnames, which
         # is what lets this come up on a laptop with no certificate and no DNS.
