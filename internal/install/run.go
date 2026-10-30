@@ -2,13 +2,16 @@ package install
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/confighub/cub-server/internal/config"
+	"github.com/confighub/sdk/core/jwk"
 	"gopkg.in/yaml.v3"
 )
 
@@ -263,6 +266,45 @@ func reusableAdminKey(name string) (public, path string, err error) {
 		return "", "", fmt.Errorf("%s: %w", path, err)
 	}
 	return public, path, nil
+}
+
+// heldAdminKeyName names the key in cub's key store whose public half is publicJWK, the
+// administrator key an instance trusts, or returns "" when no key there is.
+//
+// A command run after the install, such as 'keycloak install', is not told which name the
+// install stored the key under, and --admin-key-name may have chosen any. The instance's own
+// record of the public half is what identifies it.
+func heldAdminKeyName(publicJWK string) string {
+	if publicJWK == "" {
+		return ""
+	}
+	want, err := jwk.Thumbprint(json.RawMessage(publicJWK))
+	if err != nil {
+		return ""
+	}
+	store, err := CubStore()
+	if err != nil {
+		return ""
+	}
+	paths, err := filepath.Glob(filepath.Join(store.KeyDir(), "*.jwk"))
+	if err != nil {
+		return ""
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		privateJWK, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		public, err := config.PublicJWKFromPrivate(privateJWK)
+		if err != nil {
+			continue
+		}
+		if got, err := jwk.Thumbprint(json.RawMessage(public)); err == nil && got == want {
+			return strings.TrimSuffix(filepath.Base(path), ".jwk")
+		}
+	}
+	return ""
 }
 
 // outDirFlag echoes back a non-default --out-dir, so the recovery commands this

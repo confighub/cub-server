@@ -136,3 +136,38 @@ func TestCubEnvDropsTheCallersPosition(t *testing.T) {
 		t.Error("PATH was dropped; the child could not find anything")
 	}
 }
+
+// A command run after the install is not told the name --admin-key-name chose, so it finds
+// the key by the public half the instance trusts, among whatever else the store holds.
+func TestHeldAdminKeyNameFindsTheKeyByItsPublicHalf(t *testing.T) {
+	t.Setenv("CUB_CONFIG", t.TempDir())
+	store, err := CubStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pairs []*config.AdminKeypair
+	for _, name := range []string{"confighub-admin", "lab-admin"} {
+		pair, err := config.GenerateAdminKeypair()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.WritePrivateKey(name, json.RawMessage(pair.PrivateJWK)); err != nil {
+			t.Fatal(err)
+		}
+		pairs = append(pairs, pair)
+	}
+
+	if got := heldAdminKeyName(pairs[1].PublicJWK); got != "lab-admin" {
+		t.Errorf("heldAdminKeyName = %q, want lab-admin", got)
+	}
+	other, err := config.GenerateAdminKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := heldAdminKeyName(other.PublicJWK); got != "" {
+		t.Errorf("a key the store does not hold was named %q", got)
+	}
+	if got := heldAdminKeyName(""); got != "" {
+		t.Errorf("no public key was named %q", got)
+	}
+}
