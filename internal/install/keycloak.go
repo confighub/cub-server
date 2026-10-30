@@ -280,6 +280,15 @@ func reportKeycloak(u UI, o *Options) error {
 	if err != nil {
 		return err
 	}
+	// The key the instance trusts, by whatever name the install stored it under.
+	_, adminJWK, _, err := readPrior(o.OutDir)
+	if err != nil {
+		return err
+	}
+	adminKey := heldAdminKeyName(adminJWK)
+	if adminKey == "" {
+		adminKey = "<the administrator key>"
+	}
 
 	u.section("Identity provider installed.",
 		"ConfigHub    "+o.UIURL(),
@@ -300,7 +309,7 @@ func reportKeycloak(u UI, o *Options) error {
 		"Your administrator key still works, and is now the way back in if Keycloak",
 		"is ever unavailable:",
 		"",
-		"  cub auth login --private-key "+o.AdminKeyName+" --server "+o.APIURL(),
+		"  cub auth login --private-key="+adminKey+" --server="+o.APIURL(),
 		"  cub auth browser-session",
 	)
 	return nil
