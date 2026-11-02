@@ -49,8 +49,8 @@ func (s *Surface) Get(name string) string {
 // Preserved is what a previous run generated, keyed by variable name.
 //
 // Re-running the generator must not rotate anything: a fresh CONFIGHUB_TOKEN_SIGNING_KEY_JWK
-// invalidates every session on the next restart, and a fresh
-// WORKER_MASTER_SECRET breaks every worker already enrolled. Installers re-run,
+// invalidates every session on the next restart, and a fresh database password
+// locks the server out of the bundled database. Installers re-run,
 // so the safe behaviour has to be the default one, not a flag.
 type Preserved map[string]string
 
@@ -188,8 +188,8 @@ func Build(opts Options, prior Preserved) (*Surface, error) {
 
 	// An install rendered before the rename holds its key under the old name.
 	// Carried over rather than regenerated, because a new key logs everyone out.
-	if prior[SigningKeyEnv] == "" && prior[legacySigningKeyEnv] != "" {
-		prior[SigningKeyEnv] = prior[legacySigningKeyEnv]
+	if prior[SigningKeyEnv] == "" && prior[LegacySigningKeyEnv] != "" {
+		prior[SigningKeyEnv] = prior[LegacySigningKeyEnv]
 	}
 	signingKey, generated, err := keep(SigningKeyEnv, GenerateSigningKey)
 	if err != nil {
@@ -198,15 +198,6 @@ func Build(opts Options, prior Preserved) (*Surface, error) {
 	add(Var{
 		Name: SigningKeyEnv, Placement: InSecret, Value: signingKey, Generated: generated,
 		Doc: "Signs every ConfigHub token. Unset, the server mints a new one per start and every restart logs everyone out.",
-	})
-
-	masterSecret, generated, err := keep("WORKER_MASTER_SECRET", RandomSecret)
-	if err != nil {
-		return nil, fmt.Errorf("resolving the worker master secret: %w", err)
-	}
-	add(Var{
-		Name: "WORKER_MASTER_SECRET", Placement: InSecret, Value: masterSecret, Generated: generated,
-		Doc: "Keys the HMAC over worker credentials. Changing it invalidates every enrolled worker.",
 	})
 
 	// DATABASE_URL is a secret whenever it embeds a password, which is whenever

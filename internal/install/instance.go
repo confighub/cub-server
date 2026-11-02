@@ -22,8 +22,8 @@ import (
 // first locates the instance through it, so the out-dir, not a default, decides
 // which cluster that is. A cluster name that merely matches is not evidence:
 // every install that took the defaults is called `confighub`, and applying one
-// instance's Secret over another's replaces its database password, its worker
-// secret and its token-signing key.
+// instance's Secret over another's replaces its database password and its
+// token-signing key.
 
 // secretEnvName is the Secret the server reads its generated values from.
 const secretEnvName = "confighub-secret-env"

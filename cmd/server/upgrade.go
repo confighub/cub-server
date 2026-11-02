@@ -30,9 +30,12 @@ commands it prints. With --apply it patches the running Deployments, server
 first, and waits for each rollout. Either way, merge the patches into your
 manifests, or the next apply of them undoes the upgrade.
 
+It also lists the variables the instance sets that the new version does not
+read, and where each is set, for you to remove. It changes none of them.
+
 Examples:
   cub server upgrade                                     plan the newest release, change nothing
-  cub server upgrade --version v0.9.5 --apply            upgrade the instance now
+  cub server upgrade --version v0.10.1 --apply           upgrade the instance now
   cub server upgrade --kube-context prod --namespace confighub --out-dir ./upgrade`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {

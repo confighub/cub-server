@@ -31,7 +31,7 @@ managing the instance's configuration yourself, or rotating one value.
 
 Each writes one value to stdout and nothing else, so it can be piped:
 
-  cub server key worker-secret | kubectl create secret generic ... --from-file=-`,
+  cub server key signing | kubectl create secret generic ... --from-file=-`,
 }
 
 var keyAdminCmd = &cobra.Command{
@@ -153,24 +153,6 @@ it only generates.
 	},
 }
 
-var keyWorkerCmd = &cobra.Command{
-	Use:   "worker-secret",
-	Short: "Generate the worker master secret (WORKER_MASTER_SECRET)",
-	Long: `Generate the secret keying the HMAC over worker credentials.
-
-Changing it invalidates every worker that has already enrolled, so generate it
-once per instance and keep it.`,
-	Args: cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		secret, err := config.RandomSecret()
-		if err != nil {
-			return err
-		}
-		fmt.Println(secret)
-		return nil
-	},
-}
-
 var keyAdminName string
 
 func init() {
@@ -180,6 +162,6 @@ func init() {
 	keyKeycloakClientCmd.Flags().BoolVar(&keyKeycloakJWKS, "jwks", false,
 		"Write the public key set to stdout instead of the private key")
 
-	keyCmd.AddCommand(keyAdminCmd, keySigningCmd, keyWorkerCmd, keyKeycloakClientCmd)
+	keyCmd.AddCommand(keyAdminCmd, keySigningCmd, keyKeycloakClientCmd)
 	rootCmd.AddCommand(keyCmd)
 }

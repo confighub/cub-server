@@ -22,7 +22,7 @@ including the database and its data. For an install into an existing cluster it
 deletes the namespace and leaves the cluster alone.
 
 The generated configuration is deleted too, unless --keep-config. It holds the
-signing key and the worker master secret, so keeping it is what makes a later
+signing key and the database password, so keeping it is what makes a later
 reinstall the same instance rather than a new one -- and deleting it is what
 makes the teardown complete.
 
