@@ -42,7 +42,7 @@ Keep the signing key: a new one logs everyone out. Keep the Keycloak client key 
 ## Install
 
 ```sh
-installer setup --pull oci://ghcr.io/confighub/packages/confighub:0.10.3 \
+installer setup --pull oci://ghcr.io/confighub/packages/confighub:0.10.4 \
   --work-dir confighub-local --namespace confighub \
   --select bundled-postgres --select nodeport \
   --input api_url=http://localhost:32180 \
@@ -112,7 +112,7 @@ Argo CD applies each wave, and waits for it to be healthy, before the next. A wa
 
 `scripts/test-package.sh` (`make test-package`) renders the package for each shape of install with `installer setup`, running its validators, and checks the renders it has to refuse. It needs installer 0.3.4 or later (or `$INSTALLER`), kustomize and yq, and no ConfigHub server. The `package` workflow runs it on every change.
 
-The package's version is the ConfigHub release it runs, server and UI alike: package 0.10.3 runs v0.10.3.
+The package's version is the ConfigHub release it runs, server and UI alike: package 0.10.4 runs v0.10.4.
 
 ## Publishing
 

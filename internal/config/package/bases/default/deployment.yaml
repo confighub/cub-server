@@ -35,7 +35,7 @@ spec:
       # `db init` and `db migrate` in sequence did the same thing and paid for
       # a second image start to do it.
       - name: confighub-db-init-and-migrate
-        image: ghcr.io/confighubai/confighub:v0.10.3
+        image: ghcr.io/confighubai/confighub:v0.10.4
         command:
         - /srv/app/confighub
         args:
@@ -60,7 +60,7 @@ spec:
             memory: 128Mi
       containers:
       - name: confighub
-        image: ghcr.io/confighubai/confighub:v0.10.3
+        image: ghcr.io/confighubai/confighub:v0.10.4
         # Not a restated default: it is the default only for a tagged image. A
         # tag Kubernetes treats as floating flips it to Always, which fails on a
         # cluster where the image was side-loaded rather than pushed.
@@ -76,10 +76,9 @@ spec:
           name: http
         - containerPort: 9092
           name: oci
-        # /internal/ok, not /api/info: the internal path is the liveness check
-        # and is blocked at the ingress, so it answers only from inside.
-        # Readiness uses it too, rather than the /internal/ready that
-        # validation/runtime.yaml lists.
+        # /internal/ok, not /api/info: the internal path is the liveness and
+        # readiness check, as validation/runtime.yaml lists, and is blocked at
+        # the ingress, so it answers only from inside.
         livenessProbe:
           httpGet:
             path: /internal/ok
