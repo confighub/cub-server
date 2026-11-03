@@ -5,7 +5,7 @@ metadata:
 installerMetadata:
   # The ConfigHub release the package runs: the server and the UI, which are
   # released together under one version.
-  version: 0.10.3
+  version: 0.10.4
   installerVersion: ">= 0.3.0"
 spec:
   bases:
@@ -244,6 +244,6 @@ spec:
     envSchema: validation/env.schema.json
     runtimeSpec: validation/runtime.yaml
     howToRegenerate: |
-      image=ghcr.io/confighubai/confighub:v0.10.3
+      image=ghcr.io/confighubai/confighub:v0.10.4
       docker run --rm --entrypoint /srv/app/confighub $image docgen env > validation/env.schema.json
       docker run --rm --entrypoint /srv/app/confighub $image docgen runtime > validation/runtime.yaml

@@ -36,10 +36,22 @@ Examples:
   cub server install                           defaults: a kind cluster
   cub server install --node-port 32200         choose the host port yourself
   cub server install --kube-context my-cluster a cluster you already have
-  cub server install --dry-run                 render the manifests, create nothing`,
+  cub server install --dry-run                 render the manifests, create nothing
+  cub server install --installer               render them with the installer package
+
+With --installer, the manifests are rendered by ConfigHub's installer, a cub
+plugin (cub plugin install confighub/installer; 0.3.4 or later), from
+ConfigHub's installer package, rather than from this plugin's own manifests.
+The package is pulled from ghcr.io/confighub/packages/confighub, or from
+<prefix>/packages/confighub of a mirror --registry names, at the newest version
+not newer than the server's; --installer-package names another. Everything
+else is the same: this command still generates the keys and the Secrets, which
+the package leaves out, applies the result, and signs in. An instance keeps the
+renderer it was installed with; pass --installer=false to go back.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ui := install.UI{Out: os.Stdout}
+		installOpts.InstallerSet = cmd.Flags().Changed("installer")
 		if installInteractive {
 			if err := install.Interview(os.Stdin, os.Stdout, &installOpts); err != nil {
 				return err
@@ -67,7 +79,7 @@ func init() {
 	f.StringVar(&installOpts.KubeContext, "kube-context", "", "Kubeconfig context to install into, instead of creating a kind cluster")
 
 	f.StringVar(&installOpts.Namespace, "namespace", "", "Namespace to install into (default "+install.DefaultNamespace+")")
-	f.StringVar(&installOpts.Registry, "registry", "", "Where to pull ConfigHub's images from: ghcr, gcr, or a mirror prefix holding <prefix>/confighub and <prefix>/ui (default ghcr)")
+	f.StringVar(&installOpts.Registry, "registry", "", "Where to pull ConfigHub's images from: ghcr, gcr, or a mirror prefix holding <prefix>/confighub and <prefix>/ui, and <prefix>/packages/confighub for --installer (default ghcr)")
 	f.StringVar(&installOpts.Image, "image", "", "Server image, tag included (default: the newest released version, resolved from the registry)")
 	f.StringVar(&installOpts.UIImage, "ui-image", "", "Web UI image, tag included (default: the UI release matching the server's version)")
 
@@ -88,6 +100,8 @@ func init() {
 
 	f.BoolVar(&installOpts.DryRun, "dry-run", false, "Generate everything and create nothing")
 	f.BoolVar(&installOpts.SkipAuth, "skip-auth", false, "Install without signing in")
+	f.BoolVar(&installOpts.Installer, "installer", false, "Render the manifests with the installer, from ConfigHub's installer package (default: the renderer this instance was installed with)")
+	f.StringVar(&installOpts.InstallerPackage, "installer-package", "", "Installer package to render, implying --installer: an oci:// reference, a directory or a .tgz (default: the package for the server's version, from ghcr.io or the --registry mirror)")
 
 	rootCmd.AddCommand(installCmd)
 }

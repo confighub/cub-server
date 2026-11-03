@@ -1,6 +1,6 @@
 Ports:
   - Name: http
-    Description: The API server. Serves /api, /auth, /internal/ok (liveness), /internal/ready (readiness), /internal/metrics (Prometheus), /internal/pprof/* (pprof) and /internal/routes (route listing).
+    Description: The API server. Serves /api, /auth, /internal/ok (liveness and readiness), /internal/ready (pings the database), /internal/metrics (Prometheus), /internal/pprof/* (pprof) and /internal/routes (route listing).
     Default: 9090
     Protocol: TCP
     Sources:
@@ -30,5 +30,5 @@ Probes:
   - Name: readiness
     Type: Readiness
     HTTPGet:
-      Path: /internal/ready
+      Path: /internal/ok
       PortName: http

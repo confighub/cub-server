@@ -3,8 +3,8 @@ module github.com/confighub/cub-server
 go 1.26.0
 
 require (
-	github.com/confighub/sdk/configkit/k8skit v0.10.3
-	github.com/confighub/sdk/core v0.10.3
+	github.com/confighub/sdk/configkit/k8skit v0.10.4
+	github.com/confighub/sdk/core v0.10.4
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/term v0.46.0

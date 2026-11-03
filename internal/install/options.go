@@ -109,6 +109,22 @@ type Options struct {
 	// SkipAuth leaves the instance running without logging in. For CI, which
 	// often wants the key rather than a session.
 	SkipAuth bool
+
+	// Installer renders the manifests with the installer, from ConfigHub's
+	// installer package, rather than from this plugin's own manifests. See
+	// installer.go.
+	Installer bool
+
+	// InstallerSet says --installer was given, either way. Unset, an instance
+	// keeps the renderer it was installed with.
+	InstallerSet bool
+
+	// InstallerPackage is the installer package to render, as the installer's
+	// --pull takes it: an oci:// reference, a directory or a .tgz. Empty is
+	// the package for the server's version, from the server image's registry
+	// (see Registry).
+	// Setting it implies Installer.
+	InstallerPackage string
 }
 
 // Defaults fills in what the caller did not set.
@@ -156,6 +172,15 @@ func (o *Options) Defaults() error {
 			return err
 		}
 		o.OutDir = dir
+	}
+	switch {
+	case o.InstallerPackage != "":
+		if o.InstallerSet && !o.Installer {
+			return fmt.Errorf("--installer-package renders with the installer, and --installer=false asks not to; pass one or the other")
+		}
+		o.Installer = true
+	case !o.InstallerSet:
+		o.Installer = renderedWithInstaller(o.OutDir)
 	}
 	return nil
 }

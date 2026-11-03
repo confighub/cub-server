@@ -51,10 +51,16 @@ serving real users wants a Keycloak of its own.
 Examples:
   cub server keycloak install                   defaults
   cub server keycloak install --realm acme      a realm name of your own
-  cub server keycloak install --dry-run         render the manifests, change nothing`,
+  cub server keycloak install --dry-run         render the manifests, change nothing
+
+An instance installed with --installer is rendered with the installer again,
+with the package's keycloak component; --installer and --installer=false choose
+otherwise. The installer package names the realm, the organization and the
+clients after the defaults, so it refuses --realm, --org and --client-id.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ui := install.UI{Out: os.Stdout}
+		keycloakOpts.InstallerSet = cmd.Flags().Changed("installer")
 		if err := install.RunKeycloak(cmd.Context(), ui, &keycloakOpts); err != nil {
 			fmt.Fprintf(os.Stderr, "\nKeycloak install failed: %v\n", err)
 			return install.ErrReported
@@ -87,6 +93,8 @@ func init() {
 	f.StringVar(&keycloakOpts.ClusterName, "cluster-name", "", "kind cluster the instance is in")
 	f.StringVar(&keycloakOpts.KubeContext, "kube-context", "", "Kubeconfig context the instance is in")
 	f.BoolVar(&keycloakOpts.DryRun, "dry-run", false, "Render the manifests without changing the cluster")
+	f.BoolVar(&keycloakOpts.Installer, "installer", false, "Render the manifests with the installer, from ConfigHub's installer package (default: the renderer this instance was installed with)")
+	f.StringVar(&keycloakOpts.InstallerPackage, "installer-package", "", "Installer package to render, implying --installer: an oci:// reference, a directory or a .tgz (default: the package for the server's version, from ghcr.io or the mirror the server image comes from)")
 
 	keycloakCmd.AddCommand(keycloakInstallCmd)
 	rootCmd.AddCommand(keycloakCmd)

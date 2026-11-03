@@ -46,6 +46,36 @@ The server advertises where its UI is (`UIURL` in `/api/info`, from `CONFIGHUB_U
 `cub auth login` records it on the context, so this opens the UI container. That needs cub
 v0.8.2 or newer.
 
+### Rendering with the installer
+
+```sh
+cub server install --installer
+cub server keycloak install
+```
+
+With `--installer`, the manifests are rendered by ConfigHub's
+[installer](https://github.com/confighub/installer), from ConfigHub's installer package
+(`internal/config/package`), instead of from the plugin's own manifests. It needs the installer's
+cub plugin, 0.3.4 or later:
+
+```sh
+cub plugin install confighub/installer
+```
+
+The package is pulled from `ghcr.io/confighub/packages/confighub`, or, with `--registry` naming a
+mirror, from `<prefix>/packages/confighub`; it is not copied to gcr.io, so `--registry gcr` takes it
+from ghcr.io. Its versions are ConfigHub's releases, and the plugin takes the newest one not newer
+than the server's.
+`--installer-package` names another: an `oci://` reference, a directory or a `.tgz`.
+
+Everything around the render is the same. The plugin still chooses the images and ports, generates
+the keys and passwords, writes the Secrets, which the package leaves out, applies the result and
+signs you in. `keycloak install` also turns on the organization-id claim, which the package's realm
+can't. An instance keeps the renderer it was installed with, so later runs of `install` and
+`keycloak install` use the installer without the flag; `--installer=false` switches back. The
+package names the Keycloak realm, organization and clients after the defaults, so with the
+installer `keycloak install` refuses `--realm`, `--org` and `--client-id`.
+
 ## What it installs
 
 Into a namespace (`confighub` by default):
@@ -322,6 +352,7 @@ default, or `--out-dir`):
 ```
 config/       manifests. No secrets — committable and diffable.
 secrets/      the Secrets. Not committable.
+installer/    with --installer: the installer's work directory, with the package it rendered
 kubeconfig    for the cluster this install created
 kind-cluster.yaml
 ```

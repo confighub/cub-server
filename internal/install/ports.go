@@ -5,11 +5,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"gopkg.in/yaml.v3"
-
-	"github.com/confighub/cub-server/internal/config"
 )
 
 // Which host ports an instance answers on.
@@ -82,36 +79,17 @@ func (o *Options) resolvePorts() error {
 //
 // A missing or unreadable render is the ordinary first install, not an error.
 func (o *Options) adoptPortsFromPreviousRender() error {
-	content, err := os.ReadFile(filepath.Join(o.OutDir, config.ConfigDir, "50-service.yaml"))
-	if err != nil {
-		return nil
-	}
-
-	var ports []int
-	for _, doc := range strings.Split(string(content), "\n---") {
-		var svc struct {
-			Spec struct {
-				Ports []struct {
-					NodePort int `yaml:"nodePort"`
-				} `yaml:"ports"`
-			} `yaml:"spec"`
+	for _, p := range []struct {
+		port    *int
+		service string
+	}{
+		{&o.APINodePort, "confighub-api"},
+		{&o.OCINodePort, "confighub-oci-server"},
+		{&o.UINodePort, "confighub-ui"},
+	} {
+		if *p.port == 0 {
+			*p.port = renderedNodePort(o.OutDir, p.service)
 		}
-		if yaml.Unmarshal([]byte(doc), &svc) != nil || len(svc.Spec.Ports) == 0 {
-			continue
-		}
-		ports = append(ports, svc.Spec.Ports[0].NodePort)
-	}
-	if len(ports) >= 2 {
-		if o.APINodePort == 0 {
-			o.APINodePort = ports[0]
-		}
-		if o.OCINodePort == 0 {
-			o.OCINodePort = ports[1]
-		}
-	}
-	// The UI's Service is the third.
-	if len(ports) >= 3 && o.UINodePort == 0 {
-		o.UINodePort = ports[2]
 	}
 
 	// The identity provider's port is published whether or not one is installed,

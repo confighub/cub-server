@@ -39,7 +39,7 @@ spec:
         fsGroup: 2000
       containers:
       - name: ui
-        image: ghcr.io/confighub/ui:v0.10.3
+        image: ghcr.io/confighub/ui:v0.10.4
         imagePullPolicy: IfNotPresent
         terminationMessagePolicy: FallbackToLogsOnError
         envFrom:

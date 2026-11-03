@@ -74,12 +74,26 @@ func renderConfigMap(opts Options, entries []entry) ([]byte, error) {
 	return docs.Bytes(), nil
 }
 
-func renderSecret(opts Options, entries []entry) ([]byte, error) {
+// syncWaveAnnotation orders a resource among the others when they are applied,
+// lowest wave first, as Argo CD does.
+const syncWaveAnnotation = "argocd.argoproj.io/sync-wave"
+
+// secretEdits are the edits both Secrets get: the namespace and, when it is not
+// empty, a sync wave.
+func secretEdits(docs gaby.Container, opts Options, syncWave string) []edit {
+	edits := namespaceEdits(docs, opts.Namespace)
+	if syncWave != "" {
+		edits = append(edits, edit{path: "metadata.annotations." + segment(syncWaveAnnotation), value: syncWave, insert: true})
+	}
+	return edits
+}
+
+func renderSecret(opts Options, entries []entry, syncWave string) ([]byte, error) {
 	docs, err := load("secret.yaml")
 	if err != nil {
 		return nil, err
 	}
-	if err := apply(docs, namespaceEdits(docs, opts.Namespace)); err != nil {
+	if err := apply(docs, secretEdits(docs, opts, syncWave)); err != nil {
 		return nil, err
 	}
 	if err := fillMap(docs[0], "stringData", entries); err != nil {
@@ -90,12 +104,12 @@ func renderSecret(opts Options, entries []entry) ([]byte, error) {
 
 // renderKeycloakSecret produces the Secret only Keycloak reads. See
 // InKeycloakSecret for why it is not part of the server's.
-func renderKeycloakSecret(opts Options, entries []entry) ([]byte, error) {
+func renderKeycloakSecret(opts Options, entries []entry, syncWave string) ([]byte, error) {
 	docs, err := load("keycloak-secret.yaml")
 	if err != nil {
 		return nil, err
 	}
-	if err := apply(docs, namespaceEdits(docs, opts.Namespace)); err != nil {
+	if err := apply(docs, secretEdits(docs, opts, syncWave)); err != nil {
 		return nil, err
 	}
 	if err := fillMap(docs[0], "stringData", entries); err != nil {
@@ -245,8 +259,8 @@ func Render(s *Surface, opts Options) ([]File, error) {
 		}})
 		keycloakSecret := entries(s.KeycloakSecretVars())
 		steps = append(steps, step{
-			path: SecretsDir + "/confighub-keycloak-secret.yaml", sensitive: true,
-			render: func() ([]byte, error) { return renderKeycloakSecret(opts, keycloakSecret) },
+			path: SecretsDir + "/" + KeycloakSecretFile, sensitive: true,
+			render: func() ([]byte, error) { return renderKeycloakSecret(opts, keycloakSecret, "") },
 		})
 	}
 	if opts.Database == DatabaseInternal {
@@ -261,8 +275,8 @@ func Render(s *Surface, opts Options) ([]File, error) {
 		steps = append(steps, step{path: ConfigDir + "/60-ingress.yaml", render: func() ([]byte, error) { return renderIngress(opts) }})
 	}
 	steps = append(steps, step{
-		path: SecretsDir + "/confighub-secret.yaml", sensitive: true,
-		render: func() ([]byte, error) { return renderSecret(opts, secret) },
+		path: SecretsDir + "/" + SecretFile, sensitive: true,
+		render: func() ([]byte, error) { return renderSecret(opts, secret, "") },
 	})
 
 	files := make([]File, 0, len(steps))
@@ -272,6 +286,37 @@ func Render(s *Surface, opts Options) ([]File, error) {
 			return nil, fmt.Errorf("rendering %s: %w", st.path, err)
 		}
 		files = append(files, File{Path: st.path, Sensitive: st.sensitive, Content: content})
+	}
+	return files, nil
+}
+
+// The files the Secrets are rendered to, under SecretsDir.
+const (
+	SecretFile         = "confighub-secret.yaml"
+	KeycloakSecretFile = "confighub-keycloak-secret.yaml"
+)
+
+// RenderSecrets produces only the Secrets: the server's and, with Keycloak,
+// Keycloak's own. They are what an install supplies beside the installer
+// package, which renders no Secret.
+//
+// syncWave, when it is not empty, puts them in that Argo CD sync wave, so that
+// they are applied before the workloads that read them.
+func RenderSecrets(s *Surface, opts Options, syncWave string) ([]File, error) {
+	if s == nil {
+		return nil, fmt.Errorf("no surface to render")
+	}
+	content, err := renderSecret(opts, entries(s.SecretVars()), syncWave)
+	if err != nil {
+		return nil, fmt.Errorf("rendering %s: %w", SecretFile, err)
+	}
+	files := []File{{Path: SecretsDir + "/" + SecretFile, Sensitive: true, Content: content}}
+	if opts.Keycloak != nil {
+		content, err := renderKeycloakSecret(opts, entries(s.KeycloakSecretVars()), syncWave)
+		if err != nil {
+			return nil, fmt.Errorf("rendering %s: %w", KeycloakSecretFile, err)
+		}
+		files = append(files, File{Path: SecretsDir + "/" + KeycloakSecretFile, Sensitive: true, Content: content})
 	}
 	return files, nil
 }

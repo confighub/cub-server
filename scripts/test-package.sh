@@ -93,11 +93,9 @@ check_validation() {
     [ "$(yq -r ".spec.template.spec.containers[] | select(.name == \"confighub\") | .ports[] | select(.name == \"${port}\") | .containerPort" "$deployment")" = "$number" ] ||
       fail "${name}: the server's container has no port ${port} on ${number}, which validation/runtime.yaml lists"
   done < <(yq -r '.Ports[] | .Name + " " + (.Default | tostring)' "$runtime")
-  # Each probe the server serves is the container's probe of that type, but
-  # for readiness, which the package checks with /internal/ok.
+  # Each probe the server serves is the container's probe of that type.
   local type path portname
   while read -r type path portname; do
-    [ "$type" != Readiness ] || path=/internal/ok
     number="$(yq -r ".Ports[] | select(.Name == \"${portname}\") | .Default" "$runtime")"
     local probe="$(echo "$type" | tr '[:upper:]' '[:lower:]')Probe"
     [ "$(yq -r ".spec.template.spec.containers[] | select(.name == \"confighub\") | .${probe}.httpGet | .path + \" \" + (.port | tostring)" "$deployment")" = "${path} ${number}" ] ||
