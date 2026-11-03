@@ -38,9 +38,7 @@ Examples:
   cub server install --kube-context my-cluster a cluster you already have
   cub server install --dry-run                 render the manifests, create nothing
   cub server install --installer               render them with the installer package
-  cub server install --dry-run --kube-context my-cluster \
-      --oci-url https://confighub-oci.example.com
-                                               ...with the registry behind a load balancer
+  cub server install --oci-url <url>           advertise the OCI registry at <url>
 
 With --installer, the manifests are rendered by ConfigHub's installer, a cub
 plugin (cub plugin install confighub/installer; 0.3.4 or later), from
