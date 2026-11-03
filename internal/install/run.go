@@ -42,10 +42,12 @@ func Run(ctx context.Context, u UI, o *Options) error {
 		return err
 	}
 
-	files, keyPath, err := generate(u, o)
+	before := configDigests(o.OutDir)
+	files, keyPath, err := generate(ctx, u, o)
 	if err != nil {
 		return err
 	}
+	after := configDigests(o.OutDir)
 
 	if o.DryRun {
 		u.section("Dry run: nothing was created in a cluster.",
@@ -69,6 +71,11 @@ func Run(ctx context.Context, u UI, o *Options) error {
 
 	if err := applyManifests(ctx, u, o, kube, files, "Installing ConfigHub"); err != nil {
 		return err
+	}
+	if o.Installer {
+		if err := restartChanged(ctx, u, o, kube, before, after); err != nil {
+			return err
+		}
 	}
 
 	if err := awaitReady(ctx, u, o, kube); err != nil {
@@ -97,6 +104,17 @@ func preflight(ctx context.Context, u UI, o *Options) error {
 		return err
 	}
 	u.detail("kubectl: found")
+
+	if o.Installer {
+		if err := validateForInstaller(o.deploymentOptions()); err != nil {
+			return err
+		}
+		_, version, err := installerBinary(ctx)
+		if err != nil {
+			return err
+		}
+		u.detail("installer: %s", version)
+	}
 	return nil
 }
 
@@ -110,7 +128,7 @@ func preflight(ctx context.Context, u UI, o *Options) error {
 // between them -- a dry run, a failed cluster create, a interrupted rollout --
 // leaves an instance configured to trust a key nobody holds. Nothing can
 // recover from that: only the holder ever had the private half.
-func generate(u UI, o *Options) ([]config.File, string, error) {
+func generate(ctx context.Context, u UI, o *Options) ([]config.File, string, error) {
 	u.step("Generating configuration")
 
 	prior, priorAdminJWK, priorImage, err := readPrior(o.OutDir)
@@ -164,23 +182,12 @@ func generate(u UI, o *Options) ([]config.File, string, error) {
 		return nil, "", err
 	}
 
-	files, err := config.Render(surface, opts)
+	files, err := render(ctx, u, o, opts, surface)
 	if err != nil {
 		return nil, "", err
 	}
-
-	for _, f := range files {
-		path := filepath.Join(o.OutDir, f.Path)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return nil, "", err
-		}
-		mode := os.FileMode(0o644)
-		if f.Sensitive {
-			mode = 0o600
-		}
-		if err := os.WriteFile(path, f.Content, mode); err != nil {
-			return nil, "", err
-		}
+	if err := writeRendered(o.OutDir, files); err != nil {
+		return nil, "", err
 	}
 	u.detail("wrote %d files to %s", len(files), o.OutDir)
 	u.detail("image: %s", opts.Image)
@@ -330,7 +337,7 @@ func readPrior(outDir string) (config.Preserved, string, string, error) {
 	// and Keycloak's admin password is one of them. Missing the second file
 	// would rotate a password Keycloak only reads on a first start, leaving the
 	// console reachable with a value nothing records.
-	for _, name := range []string{"confighub-secret.yaml", "confighub-keycloak-secret.yaml"} {
+	for _, name := range []string{config.SecretFile, config.KeycloakSecretFile} {
 		secretPath := filepath.Join(outDir, config.SecretsDir, name)
 		data, err := os.ReadFile(secretPath)
 		if err != nil {
@@ -349,40 +356,17 @@ func readPrior(outDir string) (config.Preserved, string, string, error) {
 		}
 	}
 
-	var adminJWK string
-	cmPath := filepath.Join(outDir, config.ConfigDir, "20-configmap.yaml")
-	if data, err := os.ReadFile(cmPath); err == nil {
-		var doc struct {
-			Data map[string]string `yaml:"data"`
-		}
-		if yaml.Unmarshal(data, &doc) == nil {
-			adminJWK = doc.Data[config.AdminJWKEnv]
-		}
-	} else if !os.IsNotExist(err) {
+	data, err := renderedConfigMapData(outDir, serverConfigMap)
+	if err != nil {
 		return nil, "", "", err
 	}
+	adminJWK := data[config.AdminJWKEnv]
 
 	// The image this instance is already on. Recovered so that re-running an
 	// install does not quietly move it to whatever is newest -- a re-run
 	// resumes, it does not deploy.
-	var image string
-	depPath := filepath.Join(outDir, config.ConfigDir, "40-deployment.yaml")
-	if data, err := os.ReadFile(depPath); err == nil {
-		var doc struct {
-			Spec struct {
-				Template struct {
-					Spec struct {
-						Containers []struct {
-							Image string `yaml:"image"`
-						} `yaml:"containers"`
-					} `yaml:"spec"`
-				} `yaml:"template"`
-			} `yaml:"spec"`
-		}
-		if yaml.Unmarshal(data, &doc) == nil && len(doc.Spec.Template.Spec.Containers) > 0 {
-			image = doc.Spec.Template.Spec.Containers[0].Image
-		}
-	} else if !os.IsNotExist(err) {
+	image, err := renderedContainerImage(outDir, serverDeploymentName, serverDeploymentName)
+	if err != nil {
 		return nil, "", "", err
 	}
 

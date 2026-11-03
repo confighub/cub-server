@@ -1,16 +1,22 @@
 name: package
 
-# Tests ConfigHub's installer package (internal/config/package).
+# Tests ConfigHub's installer package (internal/config/package), and the
+# plugin's rendering with it (cub server install --installer). On main, publishes
+# the package as oci://ghcr.io/confighub/packages/confighub:<version>, signed
+# keylessly, once per version: its version is the ConfigHub release it runs, so a
+# change to the package ships with the next one.
 on:
   push:
     branches: [main]
     paths:
-      - internal/config/package/**
+      - internal/config/**
+      - internal/install/**
       - scripts/test-package.sh
       - .github/workflows/package.yml
   pull_request:
     paths:
-      - internal/config/package/**
+      - internal/config/**
+      - internal/install/**
       - scripts/test-package.sh
       - .github/workflows/package.yml
   workflow_dispatch: {}
@@ -43,3 +49,76 @@ jobs:
       # locally the same way, with make test-package.
       - name: Test the package
         run: scripts/test-package.sh
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The plugin's tests that need the installer, which the build workflow's
+      # test job skips for want of one.
+      - name: Test rendering with the installer
+        run: go test -count=1 -run TestRenderWithInstaller -v ./internal/install/
+
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+      # Keyless signing.
+      id-token: write
+    env:
+      PACKAGE_DIR: internal/config/package
+      PACKAGE_REPO: ghcr.io/confighub/packages/confighub
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the installer
+        run: |
+          set -euo pipefail
+          base="https://github.com/confighub/installer/releases/download/${INSTALLER_VERSION}"
+          curl -fsSLO "${base}/installer-linux-amd64"
+          curl -fsSLO "${base}/installer-linux-amd64.sha256"
+          sha256sum -c installer-linux-amd64.sha256
+          install -m 0755 installer-linux-amd64 /usr/local/bin/installer
+          rm installer-linux-amd64 installer-linux-amd64.sha256
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | installer login ghcr.io --username "${{ github.actor }}" --password-stdin
+
+      - name: Package
+        id: package
+        run: |
+          set -euo pipefail
+          version=$(yq -r .installerMetadata.version "${PACKAGE_DIR}/installer.yaml")
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          installer package "$PACKAGE_DIR" -o "${RUNNER_TEMP}/confighub.tgz"
+
+      - name: Check whether the version is published
+        id: published
+        env:
+          VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          set -euo pipefail
+          if installer list "oci://${PACKAGE_REPO}" 2>/dev/null | grep -qx "$VERSION"; then
+            echo "::notice::Package ${VERSION} is already published."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install cosign
+        if: steps.published.outputs.exists == 'false'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Push and sign
+        if: steps.published.outputs.exists == 'false'
+        env:
+          VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          set -euo pipefail
+          installer push "${RUNNER_TEMP}/confighub.tgz" "oci://${PACKAGE_REPO}:${VERSION}"
+          installer sign "oci://${PACKAGE_REPO}:${VERSION}" --yes

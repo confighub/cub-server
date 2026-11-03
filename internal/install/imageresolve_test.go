@@ -193,10 +193,14 @@ func TestUIImageFollowsTheServerRegistry(t *testing.T) {
 
 func TestParseRegistry(t *testing.T) {
 	for in, want := range map[string]Registry{
-		"":                             GHCR,
-		"ghcr":                         GHCR,
-		"gcr":                          GCR,
-		"registry.example.com/mirror/": {Server: "registry.example.com/mirror/confighub", UI: "registry.example.com/mirror/ui"},
+		"":     GHCR,
+		"ghcr": GHCR,
+		"gcr":  GCR,
+		"registry.example.com/mirror/": {
+			Server:  "registry.example.com/mirror/confighub",
+			UI:      "registry.example.com/mirror/ui",
+			Package: "registry.example.com/mirror/packages/confighub",
+		},
 	} {
 		got, err := ParseRegistry(in)
 		if err != nil || got != want {

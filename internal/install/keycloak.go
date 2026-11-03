@@ -3,8 +3,6 @@ package install
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/confighub/cub-server/internal/config"
@@ -73,10 +71,12 @@ func RunKeycloak(ctx context.Context, u UI, o *Options) error {
 		}
 	}
 
-	files, err := generateKeycloak(u, o)
+	before := configDigests(o.OutDir)
+	files, err := generateKeycloak(ctx, u, o)
 	if err != nil {
 		return err
 	}
+	after := configDigests(o.OutDir)
 
 	if o.DryRun {
 		u.section("Dry run: nothing was changed in the cluster.",
@@ -114,6 +114,11 @@ func RunKeycloak(ctx context.Context, u UI, o *Options) error {
 	if err := applyManifests(ctx, u, o, kube, serverFiles, "Pointing the server at it"); err != nil {
 		return err
 	}
+	if o.Installer {
+		if err := restartChanged(ctx, u, o, kube, before, after); err != nil {
+			return err
+		}
+	}
 	if err := kube.waitForRollout(ctx, o.Namespace, "deployment", "confighub", rolloutTimeout); err != nil {
 		return err
 	}
@@ -150,26 +155,21 @@ func keycloakAddresses(o *Options) {
 }
 
 // splitAtServer divides the rendered files into what must exist before the
-// server restarts and the Deployment that restarting means.
+// server restarts and the Deployments that restarting means: the files holding
+// the server's or the UI's.
 //
 // Everything else -- the ConfigMap, the Secret, Keycloak itself -- can be
 // applied freely: the running server does not re-read them, so it keeps serving
 // on its old configuration until its Deployment is replaced.
 func splitAtServer(files []config.File) (before, server []config.File) {
 	for _, f := range files {
-		if strings.HasSuffix(f.Path, "40-deployment.yaml") || strings.HasSuffix(f.Path, "45-ui.yaml") {
+		if objectIn(f.Content, "Deployment", serverDeploymentName) != nil || objectIn(f.Content, "Deployment", uiDeploymentName) != nil {
 			server = append(server, f)
 			continue
 		}
 		before = append(before, f)
 	}
 	return before, server
-}
-
-// keycloakManifest is where an instance's identity provider is recorded, and so
-// how any command can tell that it has one.
-func keycloakManifest(outDir string) string {
-	return filepath.Join(outDir, config.ConfigDir, "25-keycloak.yaml")
 }
 
 // refuseIfKeycloakInstalled stops `cub server install` from re-rendering an
@@ -185,7 +185,7 @@ func keycloakManifest(outDir string) string {
 // Chapter two re-renders everything chapter one does, so it is the command to
 // use, not a workaround for this one.
 func refuseIfKeycloakInstalled(o *Options) error {
-	if _, err := os.Stat(keycloakManifest(o.OutDir)); err != nil {
+	if !hasKeycloak(o.OutDir) {
 		return nil // no identity provider, which is the ordinary case
 	}
 	return fmt.Errorf(
@@ -202,23 +202,23 @@ func refuseIfKeycloakInstalled(o *Options) error {
 // re-renders them. Without them there is no instance to add to, and proceeding
 // would produce a second, conflicting configuration rather than an error.
 func requireInstalled(o *Options) error {
-	cmPath := filepath.Join(o.OutDir, config.ConfigDir, "20-configmap.yaml")
-	if _, err := os.Stat(cmPath); err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf(
-				"no instance was installed from %s.\n"+
-					"    `cub server keycloak install` adds an identity provider to an instance that already exists.\n\n"+
-					"    To create one:\n"+
-					"      cub server install%s",
-				o.OutDir, outDirFlag(o))
-		}
+	data, err := renderedConfigMapData(o.OutDir, serverConfigMap)
+	if err != nil {
 		return err
+	}
+	if data == nil {
+		return fmt.Errorf(
+			"no instance was installed from %s.\n"+
+				"    `cub server keycloak install` adds an identity provider to an instance that already exists.\n\n"+
+				"    To create one:\n"+
+				"      cub server install%s",
+			o.OutDir, outDirFlag(o))
 	}
 	return nil
 }
 
 // generateKeycloak re-renders the instance with the identity provider added.
-func generateKeycloak(u UI, o *Options) ([]config.File, error) {
+func generateKeycloak(ctx context.Context, u UI, o *Options) ([]config.File, error) {
 	u.step("Generating configuration")
 
 	prior, priorAdminJWK, priorImage, err := readPrior(o.OutDir)
@@ -248,22 +248,12 @@ func generateKeycloak(u UI, o *Options) ([]config.File, error) {
 		return nil, err
 	}
 
-	files, err := config.Render(surface, opts)
+	files, err := render(ctx, u, o, opts, surface)
 	if err != nil {
 		return nil, err
 	}
-	for _, f := range files {
-		path := filepath.Join(o.OutDir, f.Path)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return nil, err
-		}
-		mode := os.FileMode(0o644)
-		if f.Sensitive {
-			mode = 0o600
-		}
-		if err := os.WriteFile(path, f.Content, mode); err != nil {
-			return nil, err
-		}
+	if err := writeRendered(o.OutDir, files); err != nil {
+		return nil, err
 	}
 
 	u.detail("realm %q, client %q", opts.Keycloak.Realm, opts.Keycloak.ClientID)

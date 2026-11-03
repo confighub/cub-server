@@ -42,7 +42,7 @@ Keep the signing key: a new one logs everyone out. Keep the Keycloak client key 
 ## Install
 
 ```sh
-installer setup --pull internal/config/package \
+installer setup --pull oci://ghcr.io/confighub/packages/confighub:0.10.3 \
   --work-dir confighub-local --namespace confighub \
   --select bundled-postgres --select nodeport \
   --input api_url=http://localhost:32180 \
@@ -84,7 +84,7 @@ cub server keycloak configure \
   --client-key-file <the file holding KEYCLOAK_CLIENT_PRIVATE_KEY_JWK>
 ```
 
-It also writes patches for the server's configuration, which the package has already made; they can be ignored.
+It also writes patches for the server's configuration, which the package has already made; they can be ignored. `cub server keycloak install` does this step itself, rendering with this package when the instance was installed with `cub server install --installer`.
 
 The bootstrap administrator's key keeps working, and is the way in if Keycloak is unavailable.
 
@@ -113,3 +113,7 @@ Argo CD applies each wave, and waits for it to be healthy, before the next. A wa
 `scripts/test-package.sh` (`make test-package`) renders the package for each shape of install with `installer setup`, running its validators, and checks the renders it has to refuse. It needs installer 0.3.4 or later (or `$INSTALLER`), kustomize and yq, and no ConfigHub server. The `package` workflow runs it on every change.
 
 The package's version is the ConfigHub release it runs, server and UI alike: package 0.10.3 runs v0.10.3.
+
+## Publishing
+
+On every push to main, the `package` workflow publishes the package as `oci://ghcr.io/confighub/packages/confighub:<version>`, signed with cosign, unless that version is already published. So a change to the package ships when its version is bumped to the next ConfigHub release. `cub server install --installer` pulls it from there, or from a mirror its `--registry` names.

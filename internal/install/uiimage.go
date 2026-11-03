@@ -2,14 +2,8 @@ package install
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
-
-	"gopkg.in/yaml.v3"
-
-	"github.com/confighub/cub-server/internal/config"
 )
 
 // The web UI runs as its own container.
@@ -119,26 +113,6 @@ func resolveUIImage(u UI, o *Options) error {
 // priorUIImage reads the UI image from a previous render, or "" when there is
 // none.
 func priorUIImage(outDir string) string {
-	content, err := os.ReadFile(filepath.Join(outDir, config.ConfigDir, "45-ui.yaml"))
-	if err != nil {
-		return ""
-	}
-	for _, doc := range strings.Split(string(content), "\n---") {
-		var dep struct {
-			Kind string `yaml:"kind"`
-			Spec struct {
-				Template struct {
-					Spec struct {
-						Containers []struct {
-							Image string `yaml:"image"`
-						} `yaml:"containers"`
-					} `yaml:"spec"`
-				} `yaml:"template"`
-			} `yaml:"spec"`
-		}
-		if yaml.Unmarshal([]byte(doc), &dep) == nil && dep.Kind == "Deployment" && len(dep.Spec.Template.Spec.Containers) > 0 {
-			return dep.Spec.Template.Spec.Containers[0].Image
-		}
-	}
-	return ""
+	image, _ := renderedContainerImage(outDir, uiDeploymentName, "ui")
+	return image
 }

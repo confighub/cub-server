@@ -76,15 +76,12 @@ func OpenKeycloak(ctx context.Context, out io.Writer, o *Options, printURL, prin
 
 // requireKeycloakInstalled refuses to open a console that does not exist.
 func requireKeycloakInstalled(o *Options) error {
-	if _, err := os.Stat(keycloakManifest(o.OutDir)); err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf(
-				"%s has no identity provider to open.\n\n"+
-					"    To install one:\n"+
-					"      cub server keycloak install%s",
-				o.OutDir, outDirFlag(o))
-		}
-		return err
+	if !hasKeycloak(o.OutDir) {
+		return fmt.Errorf(
+			"%s has no identity provider to open.\n\n"+
+				"    To install one:\n"+
+				"      cub server keycloak install%s",
+			o.OutDir, outDirFlag(o))
 	}
 	return nil
 }
@@ -115,20 +112,13 @@ func requireKindClusterExists(o *Options) error {
 // where any command asks what this instance's Keycloak looks like rather than
 // re-deriving it from flags and defaults that may not match.
 func keycloakSetting(o *Options, key string) (string, error) {
-	path := filepath.Join(o.OutDir, config.ConfigDir, "20-configmap.yaml")
-	content, err := os.ReadFile(path)
+	data, err := renderedConfigMapData(o.OutDir, serverConfigMap)
 	if err != nil {
-		return "", fmt.Errorf("reading %s: %w", path, err)
+		return "", fmt.Errorf("reading the %s ConfigMap in %s: %w", serverConfigMap, o.OutDir, err)
 	}
-	var doc struct {
-		Data map[string]string `yaml:"data"`
-	}
-	if err := yaml.Unmarshal(content, &doc); err != nil {
-		return "", fmt.Errorf("parsing %s: %w", path, err)
-	}
-	value := doc.Data[key]
+	value := data[key]
 	if value == "" {
-		return "", fmt.Errorf("no %s in %s", key, path)
+		return "", fmt.Errorf("no %s in the %s ConfigMap in %s", key, serverConfigMap, o.OutDir)
 	}
 	return value, nil
 }
@@ -172,7 +162,7 @@ func keycloakConsoleURL(o *Options) (string, error) {
 func keycloakAdminPassword(ctx context.Context, o *Options) (string, error) {
 	const key = "KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD"
 
-	path := filepath.Join(o.OutDir, config.SecretsDir, "confighub-keycloak-secret.yaml")
+	path := filepath.Join(o.OutDir, config.SecretsDir, config.KeycloakSecretFile)
 	if content, err := os.ReadFile(path); err == nil {
 		var doc struct {
 			StringData map[string]string `yaml:"stringData"`

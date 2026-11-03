@@ -134,7 +134,7 @@ func existingCluster(u UI, o *Options) (kubeEnv, error) {
 // find nothing: that is a first install, or a resumed one that never got as far
 // as applying.
 func refuseIfAnotherInstance(ctx context.Context, kube kubeEnv, o *Options, requireLive bool) error {
-	recordPath := filepath.Join(o.OutDir, config.SecretsDir, "confighub-secret.yaml")
+	recordPath := filepath.Join(o.OutDir, config.SecretsDir, config.SecretFile)
 	recorded, err := readStringData(recordPath)
 	if err != nil {
 		return err
