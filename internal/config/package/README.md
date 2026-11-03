@@ -14,7 +14,8 @@ The base holds what every install runs:
 | Component | Adds |
 |---|---|
 | `bundled-postgres` (default) | PostgreSQL in the install namespace, in sync wave -1 so it is up before the server migrates it |
-| `nodeport` | NodePorts for the API, the registry and the UI, and `OCI_EXTERNAL_PORT`, so the server advertises the registry where clients reach it. Conflicts with `traefik` |
+| `keycloak` | Keycloak in the install namespace, in sync wave -1, so that people sign in as themselves. The realm it imports, and the server's and the UI's settings for it. See [Keycloak](#keycloak) |
+| `nodeport` | NodePorts for the API, the registry, the UI and, with `keycloak`, Keycloak, and `OCI_EXTERNAL_PORT`, so the server advertises the registry where clients reach it. Conflicts with `traefik` |
 | `traefik` | Traefik IngressRoutes for the API on a hostname, redirecting HTTP to HTTPS. Needs Traefik's CRDs |
 
 A render fails validation if:
@@ -30,8 +31,13 @@ The server reads its secrets from the `confighub-secret-env` Secret in the insta
 | `CONFIGHUB_TOKEN_SIGNING_KEY_JWK` | The key the server signs tokens with: `cub server key signing` |
 | `DATABASE_URL` | The database's connection string |
 | `POSTGRES_PASSWORD` | With `bundled-postgres` only: its password, which `DATABASE_URL` has to embed, as `postgresql://confighub:<password>@confighub-postgres:5432/confighub?sslmode=disable` |
+| `KEYCLOAK_CLIENT_PRIVATE_KEY_JWK` | With `keycloak` only: the key the server authenticates to Keycloak with, as `cub server key keycloak-client` prints it to stdout |
 
-Keep the signing key: a new one logs everyone out.
+With `keycloak`, Keycloak reads its own admin's password from `KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD` in a second Secret, `confighub-keycloak-secret`. It is separate because the server reads its Secret whole, and this is an administrator of every realm on that Keycloak.
+
+Create them before applying the package, or in sync wave -2 with the Namespace: Keycloak, in wave -1, reads its Secret as it starts.
+
+Keep the signing key: a new one logs everyone out. Keep the Keycloak client key too: Keycloak imports its public half with the realm, on its first start only, so a new one can't be matched afterwards.
 
 ## Install
 
@@ -53,8 +59,34 @@ installer setup --pull internal/config/package \
 | `oci_node_port` | `32181` | With `nodeport`: the OCI registry's NodePort. |
 | `ui_node_port` | `32183` | With `nodeport`: the UI's NodePort. |
 | `host` | `confighubplaceholder` | With `traefik`: the hostname routed to the API. |
+| `keycloak_url` | `confighubplaceholder` | With `keycloak`: where a browser reaches Keycloak, without a trailing slash. It is the issuer of every token. |
+| `keycloak_client_jwks` | `confighubplaceholder` | With `keycloak`: the public half of `KEYCLOAK_CLIENT_PRIVATE_KEY_JWK`, as `cub server key keycloak-client` prints it to stderr. |
+| `keycloak_node_port` | `32182` | With `keycloak` and `nodeport`: Keycloak's NodePort. |
+| `keycloak_org_domain` | `confighub.local` | With `keycloak`: the email domain of the organization users join. |
+| `keycloak_ssl_required` | `none` | With `keycloak`: the realm's `sslRequired`, `none` for plain http, as on a laptop, or `external` behind TLS. |
 
-To run other images, such as a mirror's copies, pass `--set-image <image>=<registry>/<image>` for each of `ghcr.io/confighubai/confighub`, `ghcr.io/confighub/ui` and, with `bundled-postgres`, `postgres`. A reference without an image tag keeps the package's.
+To run other images, such as a mirror's copies, pass `--set-image <image>=<registry>/<image>` for each of `ghcr.io/confighubai/confighub`, `ghcr.io/confighub/ui`, with `bundled-postgres`, `postgres`, and with `keycloak`, `quay.io/keycloak/keycloak`. A reference without an image tag keeps the package's.
+
+## Keycloak
+
+The `keycloak` component runs Keycloak in development mode, with its embedded database, for evaluation; an instance serving real users wants a Keycloak of its own. It imports the `confighub` realm on its first start, and never again, so the realm's inputs reach a fresh install only. The realm has:
+- the `confighub` client, which the server authenticates as by signing assertions with its key. Its service account administers the realm.
+- the public `cub` client, which `cub` signs in through with the device flow
+- the public `confighub-ui` client, which the UI signs in as with PKCE, returning only to `ui_url`
+- the `default` organization, which every user has to be a member of
+- the realm roles the server reads a user's org role from: `admin`, `manager`, `editor`, `user`, `viewer`, `creator` and `none`
+
+One thing the realm can't say. The server reads a user's organization from the token's `organization` claim, which carries organization ids only once the mapper of Keycloak's built-in `organization` client scope has "Add organization ID" turned on, and a realm that declares a client scope replaces all of the built-in ones. Until it is turned on, a browser sign-in ends in "subject_token carries no organization". Once Keycloak has imported the realm, turn it on, with the other settings `keycloak configure` checks, as the server's client:
+
+```sh
+cub server keycloak configure \
+  --keycloak-url http://localhost:32182 --ui-url http://localhost:32183 \
+  --client-key-file <the file holding KEYCLOAK_CLIENT_PRIVATE_KEY_JWK>
+```
+
+It also writes patches for the server's configuration, which the package has already made; they can be ignored.
+
+The bootstrap administrator's key keeps working, and is the way in if Keycloak is unavailable.
 
 ## Restarts on configuration changes
 
@@ -67,10 +99,10 @@ Resources are ordered by `argocd.argoproj.io/sync-wave`, lowest first:
 | Wave | Resources |
 |---|---|
 | -2 | The Namespace, which everything else is created in |
-| -1 | The bundled database, which the server's init container migrates |
+| -1 | The bundled database, which the server's init container migrates, and Keycloak, which the server reaches at startup |
 | 0 | Everything else |
 
-Argo CD applies each wave, and waits for it to be healthy, before the next. A wave applied before the one before it is healthy, or everything applied at once, works too once the Namespace exists: the server's init container fails until Postgres answers, and succeeds when it restarts.
+Argo CD applies each wave, and waits for it to be healthy, before the next. A wave applied before the one before it is healthy, or everything applied at once, works too once the Namespace exists: the server's init container fails until Postgres answers, and the server exits until Keycloak answers, and each succeeds when it restarts. Keycloak takes about a minute to import its realm on its first start.
 
 ## Validation
 

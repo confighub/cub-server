@@ -135,6 +135,12 @@ ui_env() {
   yq -r ".data.$2 // \"\"" "$(manifest "$1" configmap-confighub-confighub-ui-env.yaml)"
 }
 
+# realm <case> <yq expression>: a field of the realm Keycloak imports.
+realm() {
+  yq -r '.data["confighub-realm.json"]' "$(manifest "$1" configmap-confighub-confighub-keycloak-realm.yaml)" |
+    yq -p json -o yaml -r "$2"
+}
+
 node_port() {
   yq -r '.spec.type + ":" + (.spec.ports[0].nodePort // "" | tostring)' "$(manifest "$1" "service-confighub-$2.yaml")"
 }
@@ -174,6 +180,8 @@ if expect_render nodeport bundled-postgres,nodeport --select bundled-postgres --
   expect_equal nodeport CONFIGHUB_UI_URL "$(server_env nodeport CONFIGHUB_UI_URL)" http://localhost:31083
   expect_equal nodeport CONFIGHUB_URL "$(ui_env nodeport CONFIGHUB_URL)" http://localhost:31080
   expect_equal nodeport CONFIGHUB_LOCAL_ADMIN_JWK "$(server_env nodeport CONFIGHUB_LOCAL_ADMIN_JWK)" "$jwk"
+  [ ! -e "$(manifest nodeport service-confighub-confighub-keycloak.yaml)" ] ||
+    fail "nodeport: rendered Keycloak, which wasn't selected"
 fi
 
 # Behind Traefik, on a hostname.
@@ -185,18 +193,57 @@ if expect_render traefik bundled-postgres,traefik --select bundled-postgres --se
   expect_equal traefik "the redirect route" "$match" 'Host(`confighub.example.com`)'
 fi
 
+# With Keycloak, on a local cluster: the server's and the UI's settings for it,
+# its NodePort, and the realm it imports.
+jwks='{"keys":[{"kty":"OKP","crv":"Ed25519","x":"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo","kid":"k1","use":"sig","alg":"EdDSA"}]}'
+if expect_render keycloak bundled-postgres,keycloak,nodeport --select bundled-postgres --select keycloak --select nodeport \
+  --input ui_url=http://localhost:31083 --input keycloak_url=http://localhost:31082 \
+  --input "keycloak_client_jwks=${jwks}" --input keycloak_node_port=31082 --input keycloak_org_domain=example.com; then
+  expect_equal keycloak KEYCLOAK_AUTH_URL "$(server_env keycloak KEYCLOAK_AUTH_URL)" http://localhost:31082
+  expect_equal keycloak CONFIGHUB_AUTH_ISSUER "$(server_env keycloak CONFIGHUB_AUTH_ISSUER)" http://localhost:31082/realms/confighub
+  expect_equal keycloak KEYCLOAK_INTERNAL_URL "$(server_env keycloak KEYCLOAK_INTERNAL_URL)" http://confighub-keycloak:8080
+  expect_equal keycloak CONFIGHUB_UI_OAUTH_CLIENT_ID "$(ui_env keycloak CONFIGHUB_UI_OAUTH_CLIENT_ID)" confighub-ui
+  expect_equal keycloak "Keycloak's Service" "$(node_port keycloak confighub-keycloak)" NodePort:31082
+  hostname="$(yq -r '.spec.template.spec.containers[] | select(.name == "keycloak") | .env[] | select(.name == "KC_HOSTNAME") | .value' \
+    "$(manifest keycloak statefulset-confighub-confighub-keycloak.yaml)")"
+  expect_equal keycloak KC_HOSTNAME "$hostname" http://localhost:31082
+  expect_equal keycloak "the server client's JWKS" "$(realm keycloak '.clients[] | select(.clientId == "confighub") | .attributes["jwks.string"]')" "$jwks"
+  expect_equal keycloak "the UI client's redirect URI" "$(realm keycloak '.clients[] | select(.clientId == "confighub-ui") | .redirectUris[0]')" http://localhost:31083/
+  expect_equal keycloak "the UI client's web origin" "$(realm keycloak '.clients[] | select(.clientId == "confighub-ui") | .webOrigins[0]')" http://localhost:31083
+  expect_equal keycloak "the organization's domain" "$(realm keycloak '.organizations[0].domains[0].name')" example.com
+  expect_equal keycloak sslRequired "$(realm keycloak .sslRequired)" none
+  expect_equal keycloak "the org roles" "$(realm keycloak '[.roles.realm[].name] | join(",")')" admin,manager,editor,user,viewer,creator,none
+  # Keycloak is serving before the server, which reaches it at startup.
+  for f in configmap-confighub-confighub-keycloak-realm.yaml service-confighub-confighub-keycloak.yaml statefulset-confighub-confighub-keycloak.yaml; do
+    wave="$(yq -r '.metadata.annotations["argocd.argoproj.io/sync-wave"]' "$(manifest keycloak "$f")")"
+    expect_equal keycloak "${f}'s sync wave" "$wave" -1
+  done
+fi
+
+# Keycloak with no inputs: placeholders for what each deployment of it sets,
+# in a realm that is still JSON, and a ClusterIP Service.
+if expect_render keycloak-defaults bundled-postgres,keycloak --select bundled-postgres --select keycloak; then
+  expect_equal keycloak-defaults KEYCLOAK_AUTH_URL "$(server_env keycloak-defaults KEYCLOAK_AUTH_URL)" confighubplaceholder
+  expect_equal keycloak-defaults CONFIGHUB_AUTH_ISSUER "$(server_env keycloak-defaults CONFIGHUB_AUTH_ISSUER)" confighubplaceholder
+  expect_equal keycloak-defaults "Keycloak's Service" "$(node_port keycloak-defaults confighub-keycloak)" ClusterIP:
+  expect_equal keycloak-defaults "the server client's JWKS" "$(realm keycloak-defaults '.clients[] | select(.clientId == "confighub") | .attributes["jwks.string"]')" confighubplaceholder
+  expect_equal keycloak-defaults "the UI client's redirect URI" "$(realm keycloak-defaults '.clients[] | select(.clientId == "confighub-ui") | .redirectUris[0]')" confighubplaceholder
+  expect_equal keycloak-defaults "the organization's domain" "$(realm keycloak-defaults '.organizations[0].domains[0].name')" confighub.local
+fi
+
 # A database run elsewhere: nothing of Postgres is rendered.
 if expect_render external-database "" --components minimal; then
   [ ! -e "$(manifest external-database statefulset-confighub-confighub-postgres.yaml)" ] ||
     fail "external-database: rendered the bundled Postgres"
 fi
 
-# From a mirror: every image, the bundled database's included. A reference
-# without an image tag keeps the package's.
-if expect_render mirror bundled-postgres --components default \
+# From a mirror: every image, the bundled database's and Keycloak's included. A
+# reference without an image tag keeps the package's.
+if expect_render mirror bundled-postgres,keycloak --select bundled-postgres --select keycloak \
   --set-image ghcr.io/confighubai/confighub=mirror.example.com/confighub \
   --set-image ghcr.io/confighub/ui=mirror.example.com/ui \
-  --set-image postgres=mirror.example.com/postgres; then
+  --set-image postgres=mirror.example.com/postgres \
+  --set-image quay.io/keycloak/keycloak=mirror.example.com/keycloak; then
   images="$(yq -N -r '.spec.template.spec | (.initContainers // []) + .containers | .[].image' "${work}"/mirror/out/manifests/{deployment,statefulset}-*.yaml | sort -u)"
   while read -r image; do
     case "$image" in

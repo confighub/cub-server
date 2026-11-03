@@ -27,12 +27,57 @@ spec:
         password from POSTGRES_PASSWORD in confighub-secret-env, which
         DATABASE_URL has to embed. Without it, DATABASE_URL names a database
         you run.
+    - name: keycloak
+      path: components/keycloak
+      description: |
+        Keycloak in the install namespace, for evaluation, so that people sign
+        in as themselves; the bootstrap administrator's key keeps working. The
+        server authenticates to it with KEYCLOAK_CLIENT_PRIVATE_KEY_JWK in
+        confighub-secret-env, whose public half is the keycloak_client_jwks
+        input, and Keycloak reads its own admin's password from
+        confighub-keycloak-secret. After it imports the realm, the organization
+        claim has to be told to carry ids, which the realm can't say: see the
+        README.
+      transformers:
+        - toolchain: Kubernetes/YAML
+          description: Tell the server where a browser reaches Keycloak.
+          whereResource: "ConfigHub.ResourceNameWithoutScope = 'confighub-env'"
+          invocations:
+            - name: set-string-path
+              args: [v1/ConfigMap, data.KEYCLOAK_AUTH_URL, "{{ or .Inputs.keycloak_url \"confighubplaceholder\" }}"]
+            - name: set-string-path
+              args: [v1/ConfigMap, data.CONFIGHUB_AUTH_ISSUER, "{{ if .Inputs.keycloak_url }}{{ .Inputs.keycloak_url }}/realms/confighub{{ else }}confighubplaceholder{{ end }}"]
+        - toolchain: Kubernetes/YAML
+          description: Tell Keycloak the address it issues tokens as.
+          whereResource: "ConfigHub.ResourceNameWithoutScope = 'confighub-keycloak'"
+          invocations:
+            - name: set-string-path
+              args: [apps/v1/StatefulSet, "spec.template.spec.containers.?name=keycloak.env.?name=KC_HOSTNAME.value", "{{ or .Inputs.keycloak_url \"confighubplaceholder\" }}"]
+        # The realm is JSON in the ConfigMap, so it is parsed, edited and
+        # written back.
+        - toolchain: Kubernetes/YAML
+          description: |
+            Give the realm the server's public key, the UI's address and the
+            organization's email domain.
+          whereResource: "ConfigHub.ResourceNameWithoutScope = 'confighub-keycloak-realm'"
+          invocations:
+            - name: set-yq
+              args:
+                - |
+                  .data["confighub-realm.json"] |= (from_json
+                    | .sslRequired = {{ printf "%q" .Inputs.keycloak_ssl_required }}
+                    | .organizations[0].domains[0].name = {{ printf "%q" .Inputs.keycloak_org_domain }}
+                    | (.clients[] | select(.clientId == "confighub") | .attributes["jwks.string"]) = {{ printf "%q" (or .Inputs.keycloak_client_jwks "confighubplaceholder") }}
+                    | (.clients[] | select(.clientId == "confighub-ui") | .redirectUris) = [{{ if .Inputs.ui_url }}{{ printf "%q" (print .Inputs.ui_url "/") }}{{ else }}"confighubplaceholder"{{ end }}]
+                    | (.clients[] | select(.clientId == "confighub-ui") | .webOrigins) = [{{ printf "%q" (or .Inputs.ui_url "confighubplaceholder") }}]
+                    | to_json(2))
     - name: nodeport
       path: components/nodeport
       conflicts: [traefik]
       description: |
-        Publish the API, the OCI registry and the UI on NodePorts, as a local
-        cluster that maps them to the host wants. The server advertises the
+        Publish the API, the OCI registry, the UI and, with the keycloak
+        component, Keycloak on NodePorts, as a local cluster that maps them to
+        the host wants. The server advertises the
         registry on its NodePort.
       transformers:
         - toolchain: Kubernetes/YAML
@@ -55,6 +100,15 @@ spec:
           invocations:
             - name: set-string-path
               args: [v1/ConfigMap, data.OCI_EXTERNAL_PORT, "{{ .Inputs.oci_node_port }}"]
+        # With the keycloak component, Keycloak too, since a browser signs in
+        # there.
+        - toolchain: Kubernetes/YAML
+          whereResource: "ConfigHub.ResourceNameWithoutScope = 'confighub-keycloak'"
+          invocations:
+            - name: set-string-path
+              args: [v1/Service, spec.type, NodePort]
+            - name: set-int-path
+              args: [v1/Service, "spec.ports.?name=http.nodePort", "{{ .Inputs.keycloak_node_port }}"]
     - name: traefik
       path: components/traefik
       description: |
@@ -112,6 +166,39 @@ spec:
       type: string
       default: ""
       prompt: Hostname Traefik routes to the API (traefik component)
+    - name: keycloak_url
+      type: string
+      default: ""
+      prompt: URL a browser reaches Keycloak on, without a trailing slash (keycloak component)
+      description: |
+        The issuer of every token Keycloak mints, so it has to be the address
+        people really use.
+    - name: keycloak_client_jwks
+      type: string
+      default: ""
+      prompt: Public JWKS of the server's Keycloak client key (keycloak component)
+      description: |
+        The public half of KEYCLOAK_CLIENT_PRIVATE_KEY_JWK, as `cub server key
+        keycloak-client` prints it. Keycloak imports it with the realm, on its
+        first start only.
+    - name: keycloak_node_port
+      type: int
+      default: 32182
+      prompt: NodePort for Keycloak (keycloak and nodeport components)
+    - name: keycloak_org_domain
+      type: string
+      default: confighub.local
+      prompt: Email domain of the organization users join (keycloak component)
+      description: |
+        Keycloak requires an organization to have one, and offers membership to
+        users whose email matches it. The default is one nobody owns.
+    - name: keycloak_ssl_required
+      type: string
+      default: none
+      prompt: The realm's sslRequired, none or external (keycloak component)
+      description: |
+        none for a Keycloak reached over plain http, as on a laptop; external
+        for one behind TLS.
 
   transformers:
     - toolchain: Kubernetes/YAML

@@ -1,0 +1,137 @@
+{
+  "realm": "confighub",
+  "enabled": true,
+  "displayName": "ConfigHub",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "organizationsEnabled": true,
+  "organizations": [
+    {
+      "name": "default",
+      "alias": "default",
+      "enabled": true,
+      "description": "Every ConfigHub user is a member of this organization.",
+      "domains": [
+        {
+          "name": "confighub.local",
+          "verified": false
+        }
+      ]
+    }
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "admin",
+        "description": "ConfigHub org role. Give each user one; a user holding none gets creator."
+      },
+      {
+        "name": "manager",
+        "description": "ConfigHub org role. Give each user one; a user holding none gets creator."
+      },
+      {
+        "name": "editor",
+        "description": "ConfigHub org role. Give each user one; a user holding none gets creator."
+      },
+      {
+        "name": "user",
+        "description": "ConfigHub org role. Give each user one; a user holding none gets creator."
+      },
+      {
+        "name": "viewer",
+        "description": "ConfigHub org role. Give each user one; a user holding none gets creator."
+      },
+      {
+        "name": "creator",
+        "description": "ConfigHub org role. Give each user one; a user holding none gets creator."
+      },
+      {
+        "name": "none",
+        "description": "ConfigHub org role. Give each user one; a user holding none gets creator."
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "confighub",
+      "name": "ConfigHub server",
+      "description": "The server. Authenticates by signing an assertion; holds no secret.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "clientAuthenticatorType": "client-jwt",
+      "redirectUris": [],
+      "webOrigins": [],
+      "attributes": {
+        "use.jwks.string": "true",
+        "jwks.string": "confighubplaceholder",
+        "token.endpoint.auth.signing.alg": "EdDSA"
+      }
+    },
+    {
+      "clientId": "cub",
+      "name": "cub CLI",
+      "description": "The CLI. Public: it runs on the user's machine and can hold no credential.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "attributes": {
+        "oauth2.device.authorization.grant.enabled": "true"
+      }
+    },
+    {
+      "clientId": "confighub-ui",
+      "name": "ConfigHub UI",
+      "description": "The web UI. Public: it runs in the browser, so PKCE and an exact redirect URI stand in for a secret.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "confighubplaceholder"
+      ],
+      "webOrigins": [
+        "confighubplaceholder"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+"
+      },
+      "protocolMappers": [
+        {
+          "name": "confighub-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "confighub",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "service-account-confighub",
+      "enabled": true,
+      "serviceAccountClientId": "confighub",
+      "clientRoles": {
+        "realm-management": [
+          "realm-admin"
+        ]
+      }
+    }
+  ]
+}

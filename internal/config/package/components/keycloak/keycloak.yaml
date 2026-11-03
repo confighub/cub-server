@@ -1,0 +1,115 @@
+# The bundled identity provider, in sync wave -1 with the realm it imports: the
+# server fetches the realm's discovery document at startup and exits if it
+# cannot, so Keycloak has to be serving before the server starts.
+apiVersion: v1
+kind: Service
+metadata:
+  name: confighub-keycloak
+  namespace: confighubplaceholder
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  type: ClusterIP
+  selector:
+    app: confighub-keycloak
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: confighub-keycloak
+  namespace: confighubplaceholder
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  serviceName: confighub-keycloak
+  replicas: 1
+  selector:
+    matchLabels:
+      app: confighub-keycloak
+  template:
+    metadata:
+      labels:
+        app: confighub-keycloak
+    spec:
+      # Meets the Pod Security Standards "restricted" level, which the namespace
+      # enforces. 1000 is the keycloak user of the image, which owns
+      # /opt/keycloak; fsGroup makes the volume writable to it.
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: keycloak
+        image: quay.io/keycloak/keycloak:26.7.3
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        # start-dev, and deliberately. It runs an embedded database and relaxes
+        # the checks a production Keycloak makes about TLS and hostnames, which
+        # is what lets this come up on a laptop with no certificate and no DNS.
+        # An instance serving real users wants neither this mode nor this
+        # database; it wants a Keycloak of its own.
+        args: ["start-dev", "--import-realm"]
+        env:
+        # The temporary admin, for reaching Keycloak's own console to add people.
+        # ConfigHub never uses it.
+        - name: KC_BOOTSTRAP_ADMIN_USERNAME
+          value: kcadmin
+        # Read only when Keycloak has no admin yet, which is its first start.
+        #
+        # From Keycloak's own Secret, not the server's: the server takes its
+        # Secret whole with envFrom, and this is an admin of the master realm.
+        - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: confighub-keycloak-secret
+              key: KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD
+        # The browser's address, fixed: the installer's keycloak_url input. Every
+        # token is issued by it and every frontchannel URL in the discovery
+        # document points at it, which is what the server verifies tokens
+        # against.
+        - name: KC_HOSTNAME
+          value: confighubplaceholder
+        # ... while backchannel URLs follow whichever host asked. That is what
+        # lets the server discover a token endpoint it can reach at the Service's
+        # name while the browser keeps being sent to the address above.
+        - name: KC_HOSTNAME_BACKCHANNEL_DYNAMIC
+          value: "true"
+        - name: KC_HEALTH_ENABLED
+          value: "true"
+        ports:
+        - name: http
+          containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /realms/master
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 60
+        volumeMounts:
+        - name: realm
+          mountPath: /opt/keycloak/data/import
+          readOnly: true
+        - name: data
+          mountPath: /opt/keycloak/data/h2
+      volumes:
+      - name: realm
+        configMap:
+          name: confighub-keycloak-realm
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 1Gi
