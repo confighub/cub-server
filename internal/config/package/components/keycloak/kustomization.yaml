@@ -1,0 +1,58 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - keycloak.yaml
+# The realm Keycloak imports on its first start, and never again: a change to it
+# reaches a fresh install only. The installer's transformers write the values
+# that vary per install into it.
+configMapGenerator:
+  - name: confighub-keycloak-realm
+    namespace: confighubplaceholder
+    files:
+      - confighub-realm.json
+    options:
+      disableNameSuffixHash: true
+      annotations:
+        argocd.argoproj.io/sync-wave: "-1"
+# What the server and the UI need to use it. The values that vary per install
+# are the installer's inputs, which set them over these.
+patches:
+  - target:
+      kind: ConfigMap
+      name: confighub-env
+    patch: |-
+      - op: add
+        path: /data/KEYCLOAK_REALM
+        value: confighub
+      # Where a browser reaches Keycloak, and so the issuer of every token.
+      - op: add
+        path: /data/KEYCLOAK_AUTH_URL
+        value: confighubplaceholder
+      # Where the server reaches it: the browser's address doesn't resolve in
+      # the cluster.
+      - op: add
+        path: /data/KEYCLOAK_INTERNAL_URL
+        value: http://confighub-keycloak:8080
+      - op: add
+        path: /data/KEYCLOAK_CLIENT_ID
+        value: confighub
+      - op: add
+        path: /data/KEYCLOAK_DEVICE_CLIENT_ID
+        value: cub
+      # The realm the UI runs OIDC against, and the issuer of the tokens the
+      # server exchanges for its own.
+      - op: add
+        path: /data/CONFIGHUB_AUTH_ISSUER
+        value: confighubplaceholder
+      # What the server requires in a token it exchanges; the UI's client emits
+      # it.
+      - op: add
+        path: /data/CONFIGHUB_TOKEN_EXCHANGE_AUDIENCE
+        value: confighub
+  - target:
+      kind: ConfigMap
+      name: confighub-ui-env
+    patch: |-
+      - op: add
+        path: /data/CONFIGHUB_UI_OAUTH_CLIENT_ID
+        value: confighub-ui
