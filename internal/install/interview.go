@@ -64,6 +64,27 @@ func Interview(in io.Reader, out io.Writer, o *Options) error {
 			}
 			o.KubeContext = name
 		}
+		// Unset, the server derives the registry's scheme, host and port from the
+		// client's request, which is right for a kind cluster. Only a cluster of
+		// the operator's own can put the registry where a request can't tell.
+		// Blank is the common answer, so it is the default, and it keeps a URL a
+		// previous run recorded.
+		if o.OCIURL == "" {
+			fmt.Fprintln(out, "\nWhere do clients, such as Argo CD in another cluster, reach the OCI registry?")
+			fmt.Fprintln(out, "Leave it blank unless it is behind a load balancer that terminates TLS, or on a name other than oci.<API host>.")
+			for {
+				url, err := ask(r, out, "Registry URL, like https://oci.example.com", "")
+				if err != nil {
+					return err
+				}
+				if err := config.ValidateOCIURL(url); err != nil {
+					fmt.Fprintf(out, "  %v\n", err)
+					continue
+				}
+				o.OCIURL = strings.TrimSpace(url)
+				break
+			}
+		}
 	}
 
 	if o.APINodePort == 0 {

@@ -192,6 +192,9 @@ func generate(ctx context.Context, u UI, o *Options) ([]config.File, string, err
 	u.detail("wrote %d files to %s", len(files), o.OutDir)
 	u.detail("image: %s", opts.Image)
 	u.detail("ui image: %s", opts.UIImage)
+	if ociURL := surface.Get(config.OCIURLEnv); ociURL != "" {
+		u.detail("OCI registry advertised at %s (OCI_EXTERNAL_URL)", ociURL)
+	}
 
 	return files, keyPath, nil
 }
@@ -361,6 +364,11 @@ func readPrior(outDir string) (config.Preserved, string, string, error) {
 		return nil, "", "", err
 	}
 	adminJWK := data[config.AdminJWKEnv]
+	// Not generated, but chosen once, at install: a re-run, and 'keycloak
+	// install', render the ConfigMap again without being told.
+	if v := data[config.OCIURLEnv]; v != "" {
+		prior[config.OCIURLEnv] = v
+	}
 
 	// The image this instance is already on. Recovered so that re-running an
 	// install does not quietly move it to whatever is newest -- a re-run

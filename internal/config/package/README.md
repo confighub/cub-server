@@ -15,7 +15,7 @@ The base holds what every install runs:
 |---|---|
 | `bundled-postgres` (default) | PostgreSQL in the install namespace, in sync wave -1 so it is up before the server migrates it |
 | `keycloak` | Keycloak in the install namespace, in sync wave -1, so that people sign in as themselves. The realm it imports, and the server's and the UI's settings for it. See [Keycloak](#keycloak) |
-| `nodeport` | NodePorts for the API, the registry, the UI and, with `keycloak`, Keycloak, and `OCI_EXTERNAL_PORT`, so the server advertises the registry where clients reach it. Conflicts with `traefik` |
+| `nodeport` | NodePorts for the API, the registry, the UI and, with `keycloak`, Keycloak, and `OCI_EXTERNAL_PORT`, so the server advertises the registry where clients reach it, unless `oci_url` says where that is. Conflicts with `traefik` |
 | `traefik` | Traefik IngressRoutes for the API on a hostname, redirecting HTTP to HTTPS. Needs Traefik's CRDs |
 
 A render fails validation if:
@@ -57,6 +57,7 @@ installer setup --pull oci://ghcr.io/confighub/packages/confighub:0.10.4 \
 | `admin_jwk` | `confighubplaceholder` | The public JWK of the bootstrap administrator, as `cub server key admin` prints it. |
 | `api_node_port` | `32180` | With `nodeport`: the API's NodePort. |
 | `oci_node_port` | `32181` | With `nodeport`: the OCI registry's NodePort. |
+| `oci_url` | empty | `OCI_EXTERNAL_URL`: the scheme, host and port the server advertises the OCI registry at, like `https://oci.example.com`. Empty, the server derives them from the client's request. Set it behind a load balancer that terminates TLS without forwarded headers, or for a registry on a name other than `oci.<API host>`. |
 | `ui_node_port` | `32183` | With `nodeport`: the UI's NodePort. |
 | `host` | `confighubplaceholder` | With `traefik`: the hostname routed to the API. |
 | `keycloak_url` | `confighubplaceholder` | With `keycloak`: where a browser reaches Keycloak, without a trailing slash. It is the issuer of every token. |

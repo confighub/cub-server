@@ -78,7 +78,7 @@ spec:
         Publish the API, the OCI registry, the UI and, with the keycloak
         component, Keycloak on NodePorts, as a local cluster that maps them to
         the host wants. The server advertises the
-        registry on its NodePort.
+        registry on its NodePort, unless oci_url says where it is.
       transformers:
         - toolchain: Kubernetes/YAML
           whereResource: "ConfigHub.ResourceNameWithoutScope = 'confighub-api'"
@@ -95,11 +95,14 @@ spec:
           invocations:
             - name: set-int-path
               args: [v1/Service, "spec.ports.?name=http.nodePort", "{{ .Inputs.ui_node_port }}"]
+        # Empty with oci_url: the server reads OCI_EXTERNAL_PORT as an
+        # override of the URL's port, so the NodePort would put the URL's host
+        # on a port only the nodes answer. Empty is unset to the server.
         - toolchain: Kubernetes/YAML
           whereResource: "ConfigHub.ResourceNameWithoutScope = 'confighub-env'"
           invocations:
             - name: set-string-path
-              args: [v1/ConfigMap, data.OCI_EXTERNAL_PORT, "{{ .Inputs.oci_node_port }}"]
+              args: [v1/ConfigMap, data.OCI_EXTERNAL_PORT, "{{ if not .Inputs.oci_url }}{{ .Inputs.oci_node_port }}{{ end }}"]
         # With the keycloak component, Keycloak too, since a browser signs in
         # there.
         - toolchain: Kubernetes/YAML
@@ -142,6 +145,17 @@ spec:
       description: |
         The server advertises it in /api/info, which is how `cub auth
         browser-session` finds the UI.
+    - name: oci_url
+      type: string
+      default: ""
+      prompt: URL to advertise the OCI registry at, or blank to derive it from each request
+      description: |
+        OCI_EXTERNAL_URL: the scheme, host and port the server advertises the
+        OCI registry at, like https://oci.example.com, an http or https URL
+        with no path whose port defaults to its scheme's. Empty, the server
+        derives them from the client's request. Set it behind a load balancer
+        that terminates TLS without forwarded headers, or for a registry on a
+        name other than oci.<API host>.
     - name: admin_jwk
       type: string
       default: ""
@@ -208,12 +222,16 @@ spec:
           args: ["{{ .Namespace }}", confighubplaceholder]
     - toolchain: Kubernetes/YAML
       description: |
-        Tell the server where a browser reaches the UI, and name the bootstrap
-        administrator's key.
+        Tell the server where a browser reaches the UI and where clients reach
+        the OCI registry, and name the bootstrap administrator's key.
       whereResource: "ConfigHub.ResourceNameWithoutScope = 'confighub-env'"
       invocations:
         - name: set-string-path
           args: [v1/ConfigMap, data.CONFIGHUB_UI_URL, "{{ or .Inputs.ui_url \"confighubplaceholder\" }}"]
+        # Empty, not a placeholder, when unset: the server reads empty as
+        # unset, and refuses to start with anything here but a URL.
+        - name: set-string-path
+          args: [v1/ConfigMap, data.OCI_EXTERNAL_URL, "{{ .Inputs.oci_url }}"]
         - name: set-string-path
           args: [v1/ConfigMap, data.CONFIGHUB_LOCAL_ADMIN_JWK, "{{ or .Inputs.admin_jwk \"confighubplaceholder\" }}"]
     - toolchain: Kubernetes/YAML

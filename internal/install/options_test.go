@@ -1,6 +1,7 @@
 package install
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -186,6 +187,98 @@ func TestReadPriorRoundTripsGeneratedValues(t *testing.T) {
 	}
 	if second.Get("WORKER_MASTER_SECRET") != surface.Get("WORKER_MASTER_SECRET") {
 		t.Error("re-running rotated the worker master secret")
+	}
+}
+
+// The registry URL an install was given is read back from its ConfigMap, so a
+// re-run, or 'keycloak install', that renders it again without --oci-url keeps it.
+func TestReadPriorKeepsTheOCIURL(t *testing.T) {
+	dir := t.TempDir()
+
+	opts := config.Options{Namespace: "confighub", APINodePort: 32180, OCINodePort: 32181, OCIURL: "https://confighub-oci.example.com"}
+	opts.Image = "ghcr.io/confighubai/confighub:test"
+	opts.UIImage = "ghcr.io/confighub/ui:test"
+	opts.Defaults()
+	surface, err := config.Build(opts, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := config.Render(surface, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		path := filepath.Join(dir, f.Path)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, f.Content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	prior, _, _, err := readPrior(dir)
+	if err != nil {
+		t.Fatalf("readPrior: %v", err)
+	}
+	if got := prior[config.OCIURLEnv]; got != "https://confighub-oci.example.com" {
+		t.Fatalf("OCI_EXTERNAL_URL read back as %q", got)
+	}
+
+	opts.OCIURL = ""
+	second, err := config.Build(opts, prior)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := second.Get(config.OCIURLEnv); got != "https://confighub-oci.example.com" {
+		t.Errorf("re-running without --oci-url gave OCI_EXTERNAL_URL %q", got)
+	}
+	if got := second.Get("OCI_EXTERNAL_PORT"); got != "" {
+		t.Errorf("re-running put OCI_EXTERNAL_PORT %q back beside the URL", got)
+	}
+}
+
+// Installing into an existing cluster asks where the registry is reached, and
+// asks again until the answer is one the server would accept.
+func TestInterviewAsksForTheOCIURLOnAnExistingCluster(t *testing.T) {
+	o := Options{
+		Target: TargetContext, KubeContext: "prod", APINodePort: 32180,
+		Database: string(config.DatabaseInternal), NewAdminKey: true, Image: "img:v1",
+	}
+	var out strings.Builder
+	if err := Interview(strings.NewReader("oci.example.com\nhttps://confighub-oci.example.com\n"), &out, &o); err != nil {
+		t.Fatal(err)
+	}
+	if o.OCIURL != "https://confighub-oci.example.com" {
+		t.Errorf("OCIURL = %q", o.OCIURL)
+	}
+	if !strings.Contains(out.String(), "--oci-url must be") {
+		t.Errorf("the bad answer was not refused:\n%s", out.String())
+	}
+
+	// Blank is the common answer, and leaves the server to work it out.
+	blank := Options{
+		Target: TargetContext, KubeContext: "prod", APINodePort: 32180,
+		Database: string(config.DatabaseInternal), NewAdminKey: true, Image: "img:v1",
+	}
+	if err := Interview(strings.NewReader("\n"), io.Discard, &blank); err != nil {
+		t.Fatal(err)
+	}
+	if blank.OCIURL != "" {
+		t.Errorf("a blank answer set OCIURL %q", blank.OCIURL)
+	}
+
+	// A kind cluster's requests say where its registry is: nothing to ask.
+	kind := Options{
+		Target: TargetKind, ClusterName: "confighub", APINodePort: 32180,
+		Database: string(config.DatabaseInternal), NewAdminKey: true, Image: "img:v1",
+	}
+	var kindOut strings.Builder
+	if err := Interview(strings.NewReader(""), &kindOut, &kind); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(kindOut.String(), "OCI registry") {
+		t.Errorf("a kind install was asked about the registry:\n%s", kindOut.String())
 	}
 }
 

@@ -82,6 +82,11 @@ type Options struct {
 	// UINodePort is where the browser reaches the web UI.
 	UINodePort int
 
+	// OCIURL is where clients reach the OCI registry, written to the server's
+	// OCI_EXTERNAL_URL. Empty keeps the one a previous run recorded, or leaves
+	// the server to work it out. See config.Options.OCIURL.
+	OCIURL string
+
 	// Keycloak is set by `cub server keycloak install` and nil otherwise. It is
 	// the second chapter of an install, not a variation on the first: the
 	// server runs perfectly well without it, and keeps its local administrator
@@ -262,6 +267,7 @@ func (o *Options) deploymentOptions() config.Options {
 		UIImage:     o.UIImage,
 		APIURL:      o.APIURL(),
 		UIURL:       o.UIURL(),
+		OCIURL:      o.OCIURL,
 		Database:    config.DatabaseMode(o.Database),
 		DatabaseURL: o.DatabaseURL,
 		Ingress:     config.IngressNone,
