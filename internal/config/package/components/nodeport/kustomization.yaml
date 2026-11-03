@@ -1,0 +1,46 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+# The node ports are the installer's api_node_port, oci_node_port and
+# ui_node_port inputs, which set them over these.
+patches:
+  # The server advertises the registry in /api/info, so that tools configured
+  # from it -- Argo CD among them -- know where to pull. Unset, it derives port
+  # 9092, where the registry binds, which is wrong for anyone outside the
+  # cluster, who reaches it on the NodePort.
+  - target:
+      kind: ConfigMap
+      name: confighub-env
+    patch: |-
+      - op: add
+        path: /data/OCI_EXTERNAL_PORT
+        value: "32181"
+  - target:
+      kind: Service
+      name: confighub-api
+    patch: |-
+      - op: replace
+        path: /spec/type
+        value: NodePort
+      - op: add
+        path: /spec/ports/0/nodePort
+        value: 32180
+  - target:
+      kind: Service
+      name: confighub-oci-server
+    patch: |-
+      - op: replace
+        path: /spec/type
+        value: NodePort
+      - op: add
+        path: /spec/ports/0/nodePort
+        value: 32181
+  - target:
+      kind: Service
+      name: confighub-ui
+    patch: |-
+      - op: replace
+        path: /spec/type
+        value: NodePort
+      - op: add
+        path: /spec/ports/0/nodePort
+        value: 32183

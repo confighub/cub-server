@@ -33,7 +33,7 @@ ASSET  := cub-server-$(GOOS)-$(GOARCH)
 # `cub plugin install`'s asset matcher never picks it over a binary.
 SBOM   := $(DIST_DIR)/cub-server.spdx.json
 
-.PHONY: all build dist sbom vet fmt fmt-check test test-race tidy check run plugin plugin-uninstall clean help
+.PHONY: all build dist sbom vet fmt fmt-check test test-race test-package tidy check run plugin plugin-uninstall clean help
 
 all: build
 
@@ -68,6 +68,9 @@ test: ## Run the tests
 
 test-race: ## Run the tests under the race detector
 	$(GO) test -race ./...
+
+test-package: ## Render the installer package and check it (needs installer, kustomize, yq)
+	scripts/test-package.sh
 
 tidy: ## Tidy go.mod / go.sum
 	$(GO) mod tidy

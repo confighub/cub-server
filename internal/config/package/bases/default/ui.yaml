@@ -1,0 +1,68 @@
+# The web UI, as its own container.
+#
+# A static single-page app served by nginx. It calls the API from the browser,
+# so it needs to know where the browser reaches the API (CONFIGHUB_URL) and, on
+# an instance with an identity provider, which OAuth client to sign in as
+# (CONFIGHUB_UI_OAUTH_CLIENT_ID). The image writes both into /config.json at
+# start. Nothing here is secret: a browser app can hold none. They are in the
+# confighub-ui-env ConfigMap.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: confighub-ui
+  namespace: confighubplaceholder
+  labels:
+    app: confighub-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: confighub-ui
+  template:
+    metadata:
+      labels:
+        app: confighub-ui
+        app.kubernetes.io/name: confighub-ui
+    spec:
+      # Off, because Kubernetes would otherwise put a CONFIGHUB_*_PORT variable
+      # in here for every Service in the namespace, and CONFIGHUB_* is the
+      # prefix this image reads its configuration from.
+      enableServiceLinks: false
+      # nginx serves files and never calls the Kubernetes API.
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 3000
+        fsGroup: 2000
+      containers:
+      - name: ui
+        image: ghcr.io/confighub/ui:v0.10.3
+        imagePullPolicy: IfNotPresent
+        terminationMessagePolicy: FallbackToLogsOnError
+        envFrom:
+        - configMapRef:
+            name: confighub-ui-env
+        ports:
+        - containerPort: 8080
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /config.json
+            port: 8080
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+        # The root filesystem stays writable: the entrypoint writes
+        # /config.json into the directory nginx serves.
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          privileged: false
+          capabilities:
+            drop:
+            - ALL

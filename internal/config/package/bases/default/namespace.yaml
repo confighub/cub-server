@@ -1,0 +1,10 @@
+# Renamed to the install namespace. Admission rejects any pod in it that does
+# not meet the Pod Security Standards "restricted" level; every workload here
+# does.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: confighubplaceholder
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
