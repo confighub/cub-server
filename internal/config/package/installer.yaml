@@ -151,14 +151,12 @@ spec:
           args: [restricted]
 
   # What the server accepts and expects, generated from the image the package
-  # runs: its commands, its environment variables as a JSON Schema, and its
-  # ports, paths and probes. installer doc shows them.
+  # runs: its environment variables as a JSON Schema, and its ports, paths and
+  # probes. installer doc shows them.
   validation:
-    commandHelp: validation/command.yaml
     envSchema: validation/env.schema.json
     runtimeSpec: validation/runtime.yaml
     howToRegenerate: |
       image=ghcr.io/confighubai/confighub:v0.10.3
-      docker run --rm --entrypoint /srv/app/confighub $image docgen command > validation/command.yaml
       docker run --rm --entrypoint /srv/app/confighub $image docgen env > validation/env.schema.json
       docker run --rm --entrypoint /srv/app/confighub $image docgen runtime > validation/runtime.yaml

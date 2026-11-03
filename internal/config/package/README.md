@@ -66,7 +66,7 @@ Everything is applied at once except the bundled database, which carries `argocd
 
 ## Validation
 
-`validation/` holds what the server, at the package's version, accepts and expects, generated from its image with `docgen`: its commands (`command.yaml`), its environment variables as a JSON Schema (`env.schema.json`), and its ports, paths and probes (`runtime.yaml`). `installer doc` shows them, and `installer.yaml`'s `spec.validation.howToRegenerate` regenerates them; do so with every version bump. The test checks the package against them.
+`validation/` holds what the server, at the package's version, accepts and expects, generated from its image with `docgen`: its environment variables as a JSON Schema (`env.schema.json`), and its ports, paths and probes (`runtime.yaml`). `installer doc` shows them, and `installer.yaml`'s `spec.validation.howToRegenerate` regenerates them; do so with every version bump. The test checks the package against them.
 
 ## Testing
 
