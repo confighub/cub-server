@@ -13,6 +13,15 @@ data:
   # startup. Not secret: the private half never reaches the cluster. The
   # installer's admin_jwk input.
   CONFIGHUB_LOCAL_ADMIN_JWK: confighubplaceholder
+  # Where clients, such as Argo CD in another cluster, reach the OCI registry,
+  # like https://oci.example.com. The server advertises it in /api/info, and
+  # the registry's token realm follows it. Empty, which the server reads as
+  # unset, leaves the server to work the address out from each request; set
+  # it behind a load balancer that terminates TLS without forwarded headers,
+  # or for a registry on a name other than oci.<API host>. Not a placeholder:
+  # the server refuses to start with anything but a URL here. The installer's
+  # oci_url input.
+  OCI_EXTERNAL_URL: ""
 ---
 # The UI's environment. Two ConfigMaps rather than one, so that a value only
 # the UI reads restarts the UI and leaves the server running.

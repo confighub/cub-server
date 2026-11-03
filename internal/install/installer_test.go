@@ -86,6 +86,38 @@ func TestInstallerArgs(t *testing.T) {
 		if strings.HasPrefix(input, "keycloak_") {
 			t.Errorf("passed %s without Keycloak", input)
 		}
+		// Unset, the package leaves OCI_EXTERNAL_URL empty and advertises the
+		// NodePort.
+		if strings.HasPrefix(input, "oci_url=") {
+			t.Errorf("passed %s with no registry URL", input)
+		}
+	}
+}
+
+// The registry's URL reaches the package as oci_url, whether it was given now
+// or kept from the previous run.
+func TestInstallerArgsWithOCIURL(t *testing.T) {
+	for name, prior := range map[string]config.Preserved{
+		"given now":              nil,
+		"kept from the last run": {config.OCIURLEnv: "https://confighub-oci.example.com"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			opts, _ := installerOptions(t, false)
+			if prior == nil {
+				opts.OCIURL = "https://confighub-oci.example.com"
+			}
+			s, err := config.Build(opts, prior)
+			if err != nil {
+				t.Fatal(err)
+			}
+			args, err := installerArgs(opts, s, "/pkg", "/work")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Contains(flagValues(args, "--input"), "oci_url=https://confighub-oci.example.com") {
+				t.Errorf("no --input oci_url in %v", args)
+			}
+		})
 	}
 }
 

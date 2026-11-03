@@ -250,6 +250,9 @@ func installerArgs(opts config.Options, s *config.Surface, pkg, workDir string) 
 	}
 	input("api_url", opts.APIURL)
 	input("ui_url", opts.UIURL)
+	// From the surface rather than opts, so a URL kept from a previous run is
+	// passed as well as one given now.
+	input("oci_url", s.Get(config.OCIURLEnv))
 	input("admin_jwk", s.Get(config.AdminJWKEnv))
 	port("api_node_port", opts.APINodePort)
 	port("oci_node_port", opts.OCINodePort)
