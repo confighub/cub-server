@@ -5,7 +5,15 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
+
+	"github.com/confighub/sdk/configkit/k8skit"
+	"github.com/confighub/sdk/core/function/api"
+	"gopkg.in/yaml.v3"
 )
 
 // kubeEnv is the environment a kubectl invocation runs in.
@@ -36,20 +44,106 @@ func (k kubeEnv) apply(ctx context.Context, content []byte) error {
 	return err
 }
 
-// applyFiles applies manifests in the order given. Order matters: the namespace
-// has to exist before anything is created inside it, and the Secret before the
-// Deployment that reads it.
+// applyFiles applies manifests one sync wave at a time, lowest first, and within
+// a wave by kind, then in the order given. Order matters: the namespace has to
+// exist before anything is created inside it, and the Secret before the
+// Deployment that reads it. Waves are Argo CD's, which also orders by kind within
+// a wave, so a manifest orders much the same way here and under Argo CD.
 func (k kubeEnv) applyFiles(ctx context.Context, paths []string) error {
-	for _, p := range paths {
-		content, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
-		if err := k.apply(ctx, content); err != nil {
+	waves, err := syncWaves(paths)
+	if err != nil {
+		return err
+	}
+	for _, wave := range waves {
+		if err := k.apply(ctx, wave); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// syncWaveAnnotation orders a resource among the others: lower waves are applied
+// first, and a resource without one is in wave 0.
+const syncWaveAnnotation = "argocd.argoproj.io/sync-wave"
+
+// documentSeparator matches the line between two YAML documents.
+var documentSeparator = regexp.MustCompile(`(?m)^---[ \t]*$`)
+
+// syncWaves reads the manifests in the files and groups them by sync wave,
+// returning one multi-document stream per wave, lowest wave first. Within a
+// wave, documents are ordered by their kind's apply priority (CRDs and
+// Namespaces first, then ServiceAccounts, RBAC, Secrets and ConfigMaps,
+// Services, workloads), and otherwise keep the order of the files and of the
+// documents in each. A file holding several resources can put them in different
+// waves.
+func syncWaves(paths []string) ([][]byte, error) {
+	type document struct {
+		wave     int
+		priority int
+		content  string
+	}
+	var docs []document
+	for _, p := range paths {
+		content, err := os.ReadFile(p)
+		if err != nil {
+			return nil, err
+		}
+		for _, text := range documentSeparator.Split(string(content), -1) {
+			var meta struct {
+				APIVersion string `yaml:"apiVersion"`
+				Kind       string `yaml:"kind"`
+				Metadata   struct {
+					Annotations map[string]string `yaml:"annotations"`
+				} `yaml:"metadata"`
+			}
+			var node yaml.Node
+			if err := yaml.Unmarshal([]byte(text), &node); err != nil {
+				return nil, fmt.Errorf("%s: %w", p, err)
+			}
+			// Nothing but comments, or the empty document before a leading
+			// separator.
+			if len(node.Content) == 0 {
+				continue
+			}
+			if err := node.Decode(&meta); err != nil {
+				return nil, fmt.Errorf("%s: %w", p, err)
+			}
+			wave := 0
+			if raw, ok := meta.Metadata.Annotations[syncWaveAnnotation]; ok {
+				wave, err = strconv.Atoi(strings.TrimSpace(raw))
+				if err != nil {
+					return nil, fmt.Errorf("%s: %s %q is not an integer", p, syncWaveAnnotation, raw)
+				}
+			}
+			docs = append(docs, document{
+				wave:     wave,
+				priority: k8skit.ResourcePriority(api.ResourceType(meta.APIVersion + "/" + meta.Kind)),
+				content:  strings.TrimLeft(text, "\n"),
+			})
+		}
+	}
+	sort.SliceStable(docs, func(i, j int) bool {
+		if docs[i].wave != docs[j].wave {
+			return docs[i].wave < docs[j].wave
+		}
+		return docs[i].priority < docs[j].priority
+	})
+
+	var waves [][]byte
+	for i, d := range docs {
+		if i == 0 || d.wave != docs[i-1].wave {
+			waves = append(waves, nil)
+		}
+		last := &waves[len(waves)-1]
+		if len(*last) > 0 {
+			*last = append(*last, "---\n"...)
+		}
+		*last = append(*last, d.content...)
+		if !strings.HasSuffix(d.content, "\n") {
+			*last = append(*last, '\n')
+		}
+	}
+	return waves, nil
 }
 
 // waitForRollout blocks until the deployment reports available.

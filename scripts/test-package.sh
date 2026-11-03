@@ -147,10 +147,11 @@ if expect_render base bundled-postgres --components default; then
   expect_equal base CONFIGHUB_LOCAL_ADMIN_JWK "$(server_env base CONFIGHUB_LOCAL_ADMIN_JWK)" confighubplaceholder
   expect_equal base "the API Service" "$(node_port base confighub-api)" ClusterIP:
   expect_equal base OCI_EXTERNAL_PORT "$(server_env base OCI_EXTERNAL_PORT)" ""
-  # Postgres comes up a sync wave before the server, which migrates it.
-  for f in statefulset-confighub-confighub-postgres.yaml service-confighub-confighub-postgres.yaml; do
-    wave="$(yq -r '.metadata.annotations["argocd.argoproj.io/sync-wave"]' "$(manifest base "$f")")"
-    expect_equal base "${f}'s sync wave" "$wave" -1
+  # The Namespace comes first, then Postgres, then the server, which migrates
+  # it.
+  for f in namespace-confighub.yaml:-2 statefulset-confighub-confighub-postgres.yaml:-1 service-confighub-confighub-postgres.yaml:-1; do
+    wave="$(yq -r '.metadata.annotations["argocd.argoproj.io/sync-wave"]' "$(manifest base "${f%%:*}")")"
+    expect_equal base "${f%%:*}'s sync wave" "$wave" "${f##*:}"
   done
   # Upload adds a hash annotation per ConfigMap to a pod template only if it
   # carries no confighub.com/Hash of its own.

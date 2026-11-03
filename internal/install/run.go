@@ -407,7 +407,8 @@ func provisionCluster(ctx context.Context, u UI, o *Options) (kubeEnv, error) {
 	return kubeEnv{kubeconfig: kubeconfig}, nil
 }
 
-// applyManifests applies the rendered files in their numbered order.
+// applyManifests applies the rendered files by sync wave, and within a wave by
+// kind, then in their numbered order.
 //
 // step is the heading to print, because an install applies everything under one
 // and adding an identity provider applies it in two passes with a wait between
@@ -421,7 +422,8 @@ func applyManifests(ctx context.Context, u UI, o *Options, kube kubeEnv, files [
 	}
 	// The filenames carry their own apply order (00-namespace before the things
 	// inside it, the Secret before the Deployment that reads it). Sorting by
-	// path preserves it without restating the sequence here.
+	// path preserves it where sync waves and kinds leave two resources
+	// unordered: see applyFiles.
 	sort.Strings(paths)
 
 	if err := kube.applyFiles(ctx, paths); err != nil {
