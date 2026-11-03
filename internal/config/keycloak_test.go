@@ -377,14 +377,31 @@ func TestSigningKeyCarriedOverFromLegacyName(t *testing.T) {
 		APIURL: "http://localhost:32180", UIURL: "http://localhost:32183",
 	}
 	opts.Defaults()
-	surface, err := Build(opts, Preserved{legacySigningKeyEnv: "legacy-key"})
+	surface, err := Build(opts, Preserved{LegacySigningKeyEnv: "legacy-key"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := surface.Get(SigningKeyEnv); got != "legacy-key" {
-		t.Errorf("%s = %q, want the key held under %s", SigningKeyEnv, got, legacySigningKeyEnv)
+		t.Errorf("%s = %q, want the key held under %s", SigningKeyEnv, got, LegacySigningKeyEnv)
 	}
-	if surface.Get(legacySigningKeyEnv) != "" {
-		t.Errorf("%s is still rendered", legacySigningKeyEnv)
+	if surface.Get(LegacySigningKeyEnv) != "" {
+		t.Errorf("%s is still rendered", LegacySigningKeyEnv)
+	}
+}
+
+// A re-run over an install rendered before workers were removed drops the worker
+// secret: the servers this plugin installs no longer read it.
+func TestWorkerSecretNotCarriedOver(t *testing.T) {
+	opts := Options{
+		Namespace: "confighub", Image: "img", UIImage: "ghcr.io/confighub/ui:v0.10.1",
+		APIURL: "http://localhost:32180", UIURL: "http://localhost:32183",
+	}
+	opts.Defaults()
+	surface, err := Build(opts, Preserved{"WORKER_MASTER_SECRET": "old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if surface.Get("WORKER_MASTER_SECRET") != "" {
+		t.Error("WORKER_MASTER_SECRET is still rendered")
 	}
 }

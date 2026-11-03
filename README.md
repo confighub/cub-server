@@ -252,12 +252,12 @@ The version it resolved is written into the generated manifests, not a floating 
 running is answerable, and two people installing at the same moment get the same thing.
 
 ```sh
-cub server install --image ghcr.io/confighubai/confighub:v0.9.5   # pick one
+cub server install --image ghcr.io/confighubai/confighub:v0.10.1   # pick one
 ```
 
-The UI is released with the server under the same version and follows it: server `v0.9.5` gets
-`ghcr.io/confighub/ui:v0.9.5`. `--ui-image` names a different one, and is required when `--image`
-is not a released version. The oldest server this plugin installs is v0.9.5, the first to read the token signing key as `CONFIGHUB_TOKEN_SIGNING_KEY_JWK`.
+The UI is released with the server under the same version and follows it: server `v0.10.1` gets
+`ghcr.io/confighub/ui:v0.10.1`. `--ui-image` names a different one, and is required when `--image`
+is not a released version. The oldest server this plugin installs is v0.10.1, the release that finished removing workers, so this plugin no longer generates `WORKER_MASTER_SECRET`.
 
 Re-running an install keeps the version the instance is already on; it resumes rather than
 upgrading. Pass `--image` to move it, which is also how you install without reaching the
@@ -282,7 +282,7 @@ and pulls it from the registry named. Postgres (`postgres:17-alpine`) and Keyclo
 
 ```sh
 cub server upgrade                          # plan the newest release; changes nothing
-cub server upgrade --version v0.9.5 --apply # upgrade the running instance
+cub server upgrade --version v0.10.1 --apply # upgrade the running instance
 ```
 
 `upgrade` reads the instance from the cluster (`--kube-context`, `--kubeconfig`, `--namespace`),
@@ -290,6 +290,11 @@ so it works however the instance was deployed, including from manifests you keep
 nothing under `~/.confighub/servers`. It moves the server, the init container that migrates its
 database, and the UI to the new version's tag, and keeps each image's registry, so a mirror stays
 a mirror (copy the new version into it first).
+
+It also reads the variables the server is given, from its Deployment and the ConfigMaps and Secrets
+it reads with `envFrom`, and lists any the new version does not read, such as `WORKER_MASTER_SECRET`
+after v0.10.0, with where each is set. It reads the names only and changes none of them: they live
+in your manifests or secret manager, and an unread variable does no harm.
 
 It writes one strategic-merge patch per Deployment to `--out-dir`. Merge them into the manifests
 you apply (they also work as kustomize patches), or run the `kubectl patch` commands it prints.
@@ -347,10 +352,9 @@ you already have. A re-run without `--oci-url` keeps the one the instance was in
 
 ## Re-running is safe
 
-Every generated value — the token signing key, the worker master secret, the database password,
-the administrator's public key — is read back from the previous run's output and reused. Rotating
-the signing key would log every session out; rotating the worker master secret would break every
-worker that had enrolled. So re-running resumes rather than replacing, and a re-run after a
+Every generated value — the token signing key, the database password, the administrator's public
+key — is read back from the previous run's output and reused. Rotating the signing key would log
+every session out; rotating the database password would lock the server out of its database. So re-running resumes rather than replacing, and a re-run after a
 failed one picks up where it stopped.
 
 ```sh
@@ -398,7 +402,6 @@ private key is left behind, even if it was generated as part of the install.
 ```sh
 cub server key admin             # the local administrator's keypair
 cub server key signing           # CONFIGHUB_TOKEN_SIGNING_KEY_JWK
-cub server key worker-secret     # WORKER_MASTER_SECRET
 cub server key keycloak-client   # the key a server authenticates to Keycloak with
 ```
 

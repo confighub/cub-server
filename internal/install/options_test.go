@@ -135,8 +135,8 @@ func TestInstanceNameSeparatesInstalls(t *testing.T) {
 }
 
 // readPrior is what makes re-running safe: a fresh signing key would log every
-// session out, and a fresh worker master secret would break every enrolled
-// worker. It reads the previous run's own output, so this round-trips through a
+// session out, and a fresh database password would lock the server out of its
+// database. It reads the previous run's own output, so this round-trips through a
 // real render.
 func TestReadPriorRoundTripsGeneratedValues(t *testing.T) {
 	dir := t.TempDir()
@@ -168,7 +168,7 @@ func TestReadPriorRoundTripsGeneratedValues(t *testing.T) {
 		t.Fatalf("readPrior: %v", err)
 	}
 
-	for _, key := range []string{"CONFIGHUB_TOKEN_SIGNING_KEY_JWK", "WORKER_MASTER_SECRET", "POSTGRES_PASSWORD"} {
+	for _, key := range []string{"CONFIGHUB_TOKEN_SIGNING_KEY_JWK", "POSTGRES_PASSWORD"} {
 		if prior[key] == "" {
 			t.Errorf("%s was not recovered; re-running would rotate it", key)
 		}
@@ -185,8 +185,8 @@ func TestReadPriorRoundTripsGeneratedValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.Get("WORKER_MASTER_SECRET") != surface.Get("WORKER_MASTER_SECRET") {
-		t.Error("re-running rotated the worker master secret")
+	if second.Get(config.SigningKeyEnv) != surface.Get(config.SigningKeyEnv) {
+		t.Error("re-running rotated the token signing key")
 	}
 }
 

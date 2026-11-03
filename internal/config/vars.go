@@ -12,7 +12,7 @@
 //
 // It is imported by the server itself and by installers. Not by cub: validating
 // a public JWK goes through jwk/publickey, which is a separate package precisely
-// so that jwkset stays out of cub and cub-worker, and importing this would put
+// so that jwkset stays out of cub, and importing this would put
 // it back.
 package config
 
@@ -101,16 +101,15 @@ type Var struct {
 
 	// Generated marks a value this package minted rather than one the caller
 	// supplied. Generated values must survive re-running the generator: a fresh
-	// CONFIGHUB_TOKEN_SIGNING_KEY_JWK invalidates every session, and a fresh
-	// WORKER_MASTER_SECRET breaks every worker that has already enrolled.
+	// CONFIGHUB_TOKEN_SIGNING_KEY_JWK invalidates every session.
 	Generated bool
 }
 
 // RandomSecret returns 32 bytes of randomness, base64url encoded.
 //
-// Used for values that are pure entropy with no structure -- the worker master
-// secret and the generated database password. 256 bits because these are HMAC
-// keys and passwords that are never typed by a human, so there is no reason to
+// Used for values that are pure entropy with no structure -- the generated
+// database password and the Keycloak bootstrap password. 256 bits because these are
+// passwords that are never typed by a human, so there is no reason to
 // be shorter.
 func RandomSecret() (string, error) {
 	buf := make([]byte, 32)
@@ -124,7 +123,7 @@ func RandomSecret() (string, error) {
 // name it had before, which an install rendered earlier still holds it under.
 const (
 	SigningKeyEnv       = "CONFIGHUB_TOKEN_SIGNING_KEY_JWK"
-	legacySigningKeyEnv = "JWT_PRIVATE_KEY_JWK"
+	LegacySigningKeyEnv = "JWT_PRIVATE_KEY_JWK"
 )
 
 // GenerateSigningKey produces a CONFIGHUB_TOKEN_SIGNING_KEY_JWK value.

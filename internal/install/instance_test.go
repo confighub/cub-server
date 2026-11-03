@@ -72,28 +72,28 @@ func TestDifferingKeysComparesOnlyWhatBothSidesHold(t *testing.T) {
 	enc := func(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
 	recorded := map[string]string{
 		"DATABASE_URL":                    "postgres://a",
-		"WORKER_MASTER_SECRET":            "mine",
+		"CONFIGHUB_TOKEN_SIGNING_KEY_JWK": "mine",
 		"KEYCLOAK_CLIENT_PRIVATE_KEY_JWK": "added by keycloak install, not applied yet",
 	}
 
 	same := map[string]string{
-		"DATABASE_URL":         enc("postgres://a"),
-		"WORKER_MASTER_SECRET": enc("mine"),
-		"SOMETHING_ELSE":       enc("set by hand in the cluster"),
+		"DATABASE_URL":                    enc("postgres://a"),
+		"CONFIGHUB_TOKEN_SIGNING_KEY_JWK": enc("mine"),
+		"SOMETHING_ELSE":                  enc("set by hand in the cluster"),
 	}
 	if got, err := differingKeys(recorded, same); err != nil || len(got) != 0 {
 		t.Errorf("the same instance was reported as different: %v, %v", got, err)
 	}
 
 	stranger := map[string]string{
-		"DATABASE_URL":         enc("postgres://b"),
-		"WORKER_MASTER_SECRET": enc("theirs"),
+		"DATABASE_URL":                    enc("postgres://b"),
+		"CONFIGHUB_TOKEN_SIGNING_KEY_JWK": enc("theirs"),
 	}
 	got, err := differingKeys(recorded, stranger)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"DATABASE_URL", "WORKER_MASTER_SECRET"}; !reflect.DeepEqual(got, want) {
+	if want := []string{"CONFIGHUB_TOKEN_SIGNING_KEY_JWK", "DATABASE_URL"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("differingKeys = %v, want %v", got, want)
 	}
 }

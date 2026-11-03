@@ -115,7 +115,7 @@ func RunUpgrade(ctx context.Context, u UI, o *UpgradeOptions) error {
 	}
 	targetVersion, _, ok := serverVersion("x:" + target)
 	if !ok {
-		return fmt.Errorf("--version %q is not a release version like v0.9.5", o.Version)
+		return fmt.Errorf("--version %q is not a release version like v0.10.1", o.Version)
 	}
 	if olderThan(targetVersion, minimumServerVersion) {
 		return fmt.Errorf("%s is older than v%d.%d.%d, the oldest server this plugin supports", target,
@@ -125,9 +125,15 @@ func RunUpgrade(ctx context.Context, u UI, o *UpgradeOptions) error {
 		return fmt.Errorf("the server is on %s, newer than %s; this command does not downgrade", currentTag, target)
 	}
 
+	sources, unreadable, err := readServerEnv(ctx, kube, o.Namespace)
+	if err != nil {
+		return err
+	}
+	unused := unusedEnvLines(unusedEnv(sources, targetVersion), unreadable)
+
 	plan := planUpgrade(o.Namespace, server, ui, serverImage, currentTag, target)
 	if len(plan.patches) == 0 {
-		u.section("Already on "+target+".", "The server and the UI both run it; nothing to change.")
+		u.section("Already on "+target+".", append([]string{"The server and the UI both run it; nothing to change."}, unused...)...)
 		return nil
 	}
 
@@ -148,7 +154,7 @@ func RunUpgrade(ctx context.Context, u UI, o *UpgradeOptions) error {
 	}
 
 	if !o.Apply {
-		return reportUpgradePlan(u, o, kube, plan, paths)
+		return reportUpgradePlan(u, o, kube, plan, paths, unused)
 	}
 
 	// The server first: its init container migrates the database, and a UI
@@ -181,6 +187,7 @@ func RunUpgrade(ctx context.Context, u UI, o *UpgradeOptions) error {
 	for _, p := range paths {
 		lines = append(lines, "  "+p)
 	}
+	lines = append(lines, unused...)
 	u.section("Upgraded to "+target+".", lines...)
 	return nil
 }
@@ -310,7 +317,7 @@ func writeUpgradePatches(dir string, plan upgradePlan) ([]string, error) {
 	return paths, nil
 }
 
-func reportUpgradePlan(u UI, o *UpgradeOptions, kube kubeEnv, plan upgradePlan, paths []string) error {
+func reportUpgradePlan(u UI, o *UpgradeOptions, kube kubeEnv, plan upgradePlan, paths []string, unused []string) error {
 	lines := append([]string{}, plan.changes...)
 	lines = append(lines, "",
 		"Nothing was changed. Merge these patches into the manifests you apply,",
@@ -325,6 +332,7 @@ func reportUpgradePlan(u UI, o *UpgradeOptions, kube kubeEnv, plan upgradePlan, 
 		lines = append(lines, "  kubectl "+strings.Join(args, " "))
 	}
 	lines = append(lines, "", "or have this command do it: re-run with --apply.")
+	lines = append(lines, unused...)
 	u.section("Upgrade from "+plan.from+" to "+plan.to+".", lines...)
 	return nil
 }

@@ -26,10 +26,10 @@ configuration, and the private half is written to cub's key directory, where
 'cub auth login --private-key' finds it. The command then signs in with it, so
 the install ends with a working session rather than with instructions.
 
-Re-running is safe. Generated values -- the token signing key, the worker master
-secret, the database password -- are read back from the previous run's output
-and reused, because rotating them would log every session out and break every
-worker that had enrolled.
+Re-running is safe. Generated values -- the token signing key, the database
+password -- are read back from the previous run's output and reused, because
+rotating them would log every session out and lock the server out of its
+database.
 
 Examples:
   cub server install -i                        answer questions, then install
