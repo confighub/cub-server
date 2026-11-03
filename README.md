@@ -331,21 +331,19 @@ uses — so naming both is refused rather than resolved.
 ### The registry's address
 
 Clients pull Releases from the OCI registry at the address the server advertises at `/api/info`,
-and `cub cluster attach` writes that address into Argo CD's or Flux's credentials. With nothing
-set, the server works it out from each request: a kind install's NodePort, or `oci.<API host>`
-behind an ingress that forwards the scheme. When the registry is elsewhere — behind a load
-balancer that terminates TLS and sends no forwarded headers, or on a name of its own — say so:
+and `cub cluster attach` writes that address into Argo CD's or Flux's credentials.
+`OCI_EXTERNAL_URL` gives the scheme, host and port to advertise; unset, the server derives them
+from the client's request. Set it when the request can't tell — behind a load balancer that
+terminates TLS and sends no forwarded headers, or with the registry on a name of its own:
 
 ```sh
 cub server install --kube-context my-cluster --oci-url https://confighub-oci.example.com
 cub server install --kube-context my-cluster --oci-url https://confighub-oci.example.com --dry-run
 ```
 
-`--oci-url` is written to `OCI_EXTERNAL_URL` in the `confighub-env` ConfigMap, in place of the
-NodePort the install would otherwise advertise. The host, the port (the scheme's default when the
-URL names none), the scheme and the registry's token realm all follow from it. `install -i` asks
-for it when installing into a cluster you already have. A re-run without `--oci-url` keeps the one
-the instance was installed with. The server reads it from v0.10.4.
+`--oci-url` is written to `OCI_EXTERNAL_URL` in the `confighub-env` ConfigMap; the port is the
+scheme's default when the URL names none. `install -i` asks for it when installing into a cluster
+you already have. A re-run without `--oci-url` keeps the one the instance was installed with. The server reads it from v0.10.4.
 
 ## Re-running is safe
 

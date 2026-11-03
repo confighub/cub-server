@@ -57,7 +57,7 @@ installer setup --pull oci://ghcr.io/confighub/packages/confighub:0.10.4 \
 | `admin_jwk` | `confighubplaceholder` | The public JWK of the bootstrap administrator, as `cub server key admin` prints it. |
 | `api_node_port` | `32180` | With `nodeport`: the API's NodePort. |
 | `oci_node_port` | `32181` | With `nodeport`: the OCI registry's NodePort. |
-| `oci_url` | empty | Where clients reach the OCI registry, like `https://oci.example.com`, as `OCI_EXTERNAL_URL`. The server advertises it in `/api/info`, and the token realm follows it. Empty leaves the server to work it out from each request; with `nodeport`, a URL replaces the NodePort it would advertise. Set it behind a load balancer that terminates TLS without forwarded headers, or for a registry on a name other than `oci.<API host>`. |
+| `oci_url` | empty | `OCI_EXTERNAL_URL`: the scheme, host and port the server advertises the OCI registry at, like `https://oci.example.com`. Empty, the server derives them from the client's request. Set it behind a load balancer that terminates TLS without forwarded headers, or for a registry on a name other than `oci.<API host>`. |
 | `ui_node_port` | `32183` | With `nodeport`: the UI's NodePort. |
 | `host` | `confighubplaceholder` | With `traefik`: the hostname routed to the API. |
 | `keycloak_url` | `confighubplaceholder` | With `keycloak`: where a browser reaches Keycloak, without a trailing slash. It is the issuer of every token. |

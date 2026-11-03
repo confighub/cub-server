@@ -148,16 +148,14 @@ spec:
     - name: oci_url
       type: string
       default: ""
-      prompt: URL clients reach the OCI registry on, or blank for the server to work it out
+      prompt: URL to advertise the OCI registry at, or blank to derive it from each request
       description: |
-        Where clients, such as Argo CD in another cluster, pull Releases from,
-        like https://oci.example.com: an http or https URL with no path, whose
-        port defaults to its scheme's. The server advertises it in /api/info,
-        `cub cluster attach` writes it into the controller's credentials, and
-        the registry's token realm follows it. Set it behind a load balancer
+        OCI_EXTERNAL_URL: the scheme, host and port the server advertises the
+        OCI registry at, like https://oci.example.com, an http or https URL
+        with no path whose port defaults to its scheme's. Empty, the server
+        derives them from the client's request. Set it behind a load balancer
         that terminates TLS without forwarded headers, or for a registry on a
-        name other than oci.<API host>. With nodeport, it replaces the
-        NodePort the server would advertise.
+        name other than oci.<API host>.
     - name: admin_jwk
       type: string
       default: ""

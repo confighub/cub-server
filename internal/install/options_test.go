@@ -268,7 +268,7 @@ func TestInterviewAsksForTheOCIURLOnAnExistingCluster(t *testing.T) {
 		t.Errorf("a blank answer set OCIURL %q", blank.OCIURL)
 	}
 
-	// A kind cluster's registry is where the server looks: nothing to ask.
+	// A kind cluster's requests say where its registry is: nothing to ask.
 	kind := Options{
 		Target: TargetKind, ClusterName: "confighub", APINodePort: 32180,
 		Database: string(config.DatabaseInternal), NewAdminKey: true, Image: "img:v1",
