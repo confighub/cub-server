@@ -1,0 +1,34 @@
+Ports:
+  - Name: http
+    Description: The API server. Serves /api, /auth, /internal/ok (liveness), /internal/ready (readiness), /internal/metrics (Prometheus), /internal/pprof/* (pprof) and /internal/routes (route listing).
+    Default: 9090
+    Protocol: TCP
+    Sources:
+      - Type: Env
+        EnvVar: PORT
+  - Name: oci
+    Description: The OCI registry server, which serves Releases to OCI clients. Bound unless ENABLE_OCI_SERVER is false. Serves /v2/*, /token, /internal/ok and /internal/metrics (Prometheus).
+    Default: 9092
+    Protocol: TCP
+    Sources:
+      - Type: Env
+        EnvVar: OCI_PORT
+Paths:
+  - Name: migrations
+    Description: The database migrations, read at startup by every command. The server image ships them at /job/migrations/ and sets CONFIGHUB_MIGRATIONS to it.
+    Path: /job/migrations/
+    Access: Read
+    Sources:
+      - Type: Env
+        EnvVar: CONFIGHUB_MIGRATIONS
+Probes:
+  - Name: liveness
+    Type: Liveness
+    HTTPGet:
+      Path: /internal/ok
+      PortName: http
+  - Name: readiness
+    Type: Readiness
+    HTTPGet:
+      Path: /internal/ready
+      PortName: http

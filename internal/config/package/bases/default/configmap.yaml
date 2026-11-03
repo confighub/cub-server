@@ -1,0 +1,27 @@
+# The server's environment, but for its secrets, which are in the
+# confighub-secret-env Secret. Nothing here is secret.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: confighub-env
+  namespace: confighubplaceholder
+data:
+  # Where the browser reaches the web UI. Advertised in /api/info so clients
+  # can link to it. The installer's ui_url input.
+  CONFIGHUB_UI_URL: confighubplaceholder
+  # Public JWK of the bootstrap administrator, which the server reads at
+  # startup. Not secret: the private half never reaches the cluster. The
+  # installer's admin_jwk input.
+  CONFIGHUB_LOCAL_ADMIN_JWK: confighubplaceholder
+---
+# The UI's environment. Two ConfigMaps rather than one, so that a value only
+# the UI reads restarts the UI and leaves the server running.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: confighub-ui-env
+  namespace: confighubplaceholder
+data:
+  # Where the browser reaches the ConfigHub API. The UI is served from a
+  # different origin. The installer's api_url input.
+  CONFIGHUB_URL: confighubplaceholder

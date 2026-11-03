@@ -1,0 +1,48 @@
+# Traefik routes to the API, on the hostname in the installer's host input.
+# The middleware redirects HTTP to HTTPS.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: redirect-to-https
+  namespace: confighubplaceholder
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: confighub-redirect-http
+  namespace: confighubplaceholder
+spec:
+  entryPoints:
+  - web
+  routes:
+  - match: Host(`confighubplaceholder`)
+    kind: Rule
+    priority: 1
+    middlewares:
+    - name: redirect-to-https
+    services:
+    - name: confighub-api
+      port: 9090
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: confighub-api-https
+  namespace: confighubplaceholder
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  # /internal is not routed. It carries the liveness endpoint, pprof, and the
+  # shutdown handler, none of which should be reachable from outside, and the
+  # server serves it on the same port as the API.
+  - match: Host(`confighubplaceholder`) && !PathPrefix(`/internal`)
+    kind: Rule
+    services:
+    - name: confighub-api
+      port: 9090
+  tls: {}

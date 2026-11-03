@@ -1,0 +1,132 @@
+# The server. Its environment is the confighub-env ConfigMap and the
+# confighub-secret-env Secret, which is not part of the package: create it in the install namespace
+# yourself, or with your secret store.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: confighub
+  namespace: confighubplaceholder
+  labels:
+    app: confighub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: confighub
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: confighub
+        app.kubernetes.io/name: confighub
+    spec:
+      serviceAccountName: confighub
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 3000
+        fsGroup: 2000
+      initContainers:
+      # init-and-migrate does both jobs in one pass: it creates the migration
+      # tables if they are not there, then migrates. Two containers running
+      # `db init` and `db migrate` in sequence did the same thing and paid for
+      # a second image start to do it.
+      - name: confighub-db-init-and-migrate
+        image: ghcr.io/confighubai/confighub:v0.10.3
+        command:
+        - /srv/app/confighub
+        args:
+        - db
+        - init-and-migrate
+        envFrom:
+        - configMapRef:
+            name: confighub-env
+        - secretRef:
+            name: confighub-secret-env
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          privileged: false
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 128m
+            memory: 128Mi
+      containers:
+      - name: confighub
+        image: ghcr.io/confighubai/confighub:v0.10.3
+        # Not a restated default: it is the default only for a tagged image. A
+        # tag Kubernetes treats as floating flips it to Always, which fails on a
+        # cluster where the image was side-loaded rather than pushed.
+        imagePullPolicy: IfNotPresent
+        terminationMessagePolicy: FallbackToLogsOnError
+        envFrom:
+        - configMapRef:
+            name: confighub-env
+        - secretRef:
+            name: confighub-secret-env
+        ports:
+        - containerPort: 9090
+          name: http
+        - containerPort: 9092
+          name: oci
+        # /internal/ok, not /api/info: the internal path is the liveness check
+        # and is blocked at the ingress, so it answers only from inside.
+        # Readiness uses it too, rather than the /internal/ready that
+        # validation/runtime.yaml lists.
+        livenessProbe:
+          httpGet:
+            path: /internal/ok
+            port: 9090
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /internal/ok
+            port: 9090
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /internal/ok
+            port: 9090
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 30
+        resources:
+          requests:
+            cpu: 500m
+            memory: 256Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          privileged: false
+          capabilities:
+            drop:
+            - ALL
+      # Spread replicas across nodes, best effort. Inert at one replica, which is
+      # what an install creates; it matters the moment anyone scales up.
+      #
+      # ScheduleAnyway makes this a preference, so scheduling can never fail
+      # because of it -- a placement choice should not be able to turn into an
+      # outage on a cluster too small or too constrained to satisfy it. Matches
+      # the base-confighub-app deployment, which chose the same.
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: confighub

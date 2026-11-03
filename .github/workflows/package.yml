@@ -1,0 +1,45 @@
+name: package
+
+# Tests ConfigHub's installer package (internal/config/package).
+on:
+  push:
+    branches: [main]
+    paths:
+      - internal/config/package/**
+      - scripts/test-package.sh
+      - .github/workflows/package.yml
+  pull_request:
+    paths:
+      - internal/config/package/**
+      - scripts/test-package.sh
+      - .github/workflows/package.yml
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  INSTALLER_VERSION: v0.3.4
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the installer
+        run: |
+          set -euo pipefail
+          base="https://github.com/confighub/installer/releases/download/${INSTALLER_VERSION}"
+          curl -fsSLO "${base}/installer-linux-amd64"
+          curl -fsSLO "${base}/installer-linux-amd64.sha256"
+          sha256sum -c installer-linux-amd64.sha256
+          install -m 0755 installer-linux-amd64 /usr/local/bin/installer
+          rm installer-linux-amd64 installer-linux-amd64.sha256
+
+      # Renders the package for each shape of install with this installer,
+      # running its validators, and checks the renders it refuses. Run it
+      # locally the same way, with make test-package.
+      - name: Test the package
+        run: scripts/test-package.sh

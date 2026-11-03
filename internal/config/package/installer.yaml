@@ -1,0 +1,162 @@
+apiVersion: installer.confighub.com/v1alpha1
+kind: Package
+metadata:
+  name: confighub
+installerMetadata:
+  # The ConfigHub release the package runs: the server and the UI, which are
+  # released together under one version.
+  version: 0.10.3
+  installerVersion: ">= 0.3.0"
+spec:
+  bases:
+    - name: default
+      path: bases/default
+      default: true
+      description: |
+        The ConfigHub server, which migrates its database before it starts,
+        and the web UI, each behind a ClusterIP Service. The server reads its
+        secrets -- the token signing key and DATABASE_URL -- from the
+        confighub-secret-env Secret, supplied out of band.
+
+  components:
+    - name: bundled-postgres
+      path: components/bundled-postgres
+      default: true
+      description: |
+        PostgreSQL in the install namespace, for evaluation. It reads its
+        password from POSTGRES_PASSWORD in confighub-secret-env, which
+        DATABASE_URL has to embed. Without it, DATABASE_URL names a database
+        you run.
+    - name: nodeport
+      path: components/nodeport
+      conflicts: [traefik]
+      description: |
+        Publish the API, the OCI registry and the UI on NodePorts, as a local
+        cluster that maps them to the host wants. The server advertises the
+        registry on its NodePort.
+      transformers:
+        - toolchain: Kubernetes/YAML
+          whereResource: "ConfigHub.ResourceNameWithoutScope = 'confighub-api'"
+          invocations:
+            - name: set-int-path
+              args: [v1/Service, "spec.ports.?name=http.nodePort", "{{ .Inputs.api_node_port }}"]
+        - toolchain: Kubernetes/YAML
+          whereResource: "ConfigHub.ResourceNameWithoutScope = 'confighub-oci-server'"
+          invocations:
+            - name: set-int-path
+              args: [v1/Service, "spec.ports.?name=oci.nodePort", "{{ .Inputs.oci_node_port }}"]
+        - toolchain: Kubernetes/YAML
+          whereResource: "ConfigHub.ResourceNameWithoutScope = 'confighub-ui'"
+          invocations:
+            - name: set-int-path
+              args: [v1/Service, "spec.ports.?name=http.nodePort", "{{ .Inputs.ui_node_port }}"]
+        - toolchain: Kubernetes/YAML
+          whereResource: "ConfigHub.ResourceNameWithoutScope = 'confighub-env'"
+          invocations:
+            - name: set-string-path
+              args: [v1/ConfigMap, data.OCI_EXTERNAL_PORT, "{{ .Inputs.oci_node_port }}"]
+    - name: traefik
+      path: components/traefik
+      description: |
+        Route the API through Traefik on a hostname, redirecting HTTP to
+        HTTPS. /internal, which carries the liveness check, is not routed.
+      externalRequires:
+        - kind: CRD
+          name: ingressroutes.traefik.io
+      transformers:
+        - toolchain: Kubernetes/YAML
+          whereResource: "ConfigHub.ResourceType = 'traefik.io/v1alpha1/IngressRoute'"
+          invocations:
+            - name: set-yq
+              args: ['.spec.routes[].match |= sub("confighubplaceholder"; "{{ or .Inputs.host "confighubplaceholder" }}")']
+
+  # The addresses are where a browser reaches the API and the UI, which are
+  # served from different origins. Unset, each is confighubplaceholder, which a
+  # deployment must set first.
+  inputs:
+    - name: api_url
+      type: string
+      default: ""
+      prompt: URL a browser reaches the ConfigHub API on
+      description: |
+        The UI calls the API from the browser, so this is the browser's
+        address for it, not a cluster-internal one.
+    - name: ui_url
+      type: string
+      default: ""
+      prompt: URL a browser reaches the ConfigHub UI on
+      description: |
+        The server advertises it in /api/info, which is how `cub auth
+        browser-session` finds the UI.
+    - name: admin_jwk
+      type: string
+      default: ""
+      prompt: Public JWK of the bootstrap administrator
+      description: |
+        The public half of the key the first administrator signs in with, as
+        `cub server key admin` prints it. Not a secret: the private half never
+        reaches the cluster.
+    - name: api_node_port
+      type: int
+      default: 32180
+      prompt: NodePort for the API (nodeport component)
+    - name: oci_node_port
+      type: int
+      default: 32181
+      prompt: NodePort for the OCI registry (nodeport component)
+    - name: ui_node_port
+      type: int
+      default: 32183
+      prompt: NodePort for the UI (nodeport component)
+    - name: host
+      type: string
+      default: ""
+      prompt: Hostname Traefik routes to the API (traefik component)
+
+  transformers:
+    - toolchain: Kubernetes/YAML
+      description: Put ConfigHub in the install namespace.
+      invocations:
+        - name: set-namespace
+          args: ["{{ .Namespace }}", confighubplaceholder]
+    - toolchain: Kubernetes/YAML
+      description: |
+        Tell the server where a browser reaches the UI, and name the bootstrap
+        administrator's key.
+      whereResource: "ConfigHub.ResourceNameWithoutScope = 'confighub-env'"
+      invocations:
+        - name: set-string-path
+          args: [v1/ConfigMap, data.CONFIGHUB_UI_URL, "{{ or .Inputs.ui_url \"confighubplaceholder\" }}"]
+        - name: set-string-path
+          args: [v1/ConfigMap, data.CONFIGHUB_LOCAL_ADMIN_JWK, "{{ or .Inputs.admin_jwk \"confighubplaceholder\" }}"]
+    - toolchain: Kubernetes/YAML
+      description: Tell the UI where a browser reaches the API.
+      whereResource: "ConfigHub.ResourceNameWithoutScope = 'confighub-ui-env'"
+      invocations:
+        - name: set-string-path
+          args: [v1/ConfigMap, data.CONFIGHUB_URL, "{{ or .Inputs.api_url \"confighubplaceholder\" }}"]
+
+  validators:
+    - toolchain: Kubernetes/YAML
+      invocations:
+        - name: vet-schemas
+        - name: vet-merge-keys
+        - name: vet-format
+        # A tag must be pinned: no :latest, and no untagged image, which means
+        # latest. A colon counts as a tag only in the last path segment, so a
+        # registry port is not one.
+        - name: vet-images
+          args: ['{"DenyRegexp": "(:latest$)|^([^/]+/)*[^/:@]+$"}']
+        - name: vet-pod-security-standard
+          args: [restricted]
+
+  # What the server accepts and expects, generated from the image the package
+  # runs: its environment variables as a JSON Schema, and its ports, paths and
+  # probes. installer doc shows them.
+  validation:
+    envSchema: validation/env.schema.json
+    runtimeSpec: validation/runtime.yaml
+    howToRegenerate: |
+      image=ghcr.io/confighubai/confighub:v0.10.3
+      docker run --rm --entrypoint /srv/app/confighub $image docgen env > validation/env.schema.json
+      docker run --rm --entrypoint /srv/app/confighub $image docgen runtime > validation/runtime.yaml
