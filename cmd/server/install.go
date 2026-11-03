@@ -38,6 +38,9 @@ Examples:
   cub server install --kube-context my-cluster a cluster you already have
   cub server install --dry-run                 render the manifests, create nothing
   cub server install --installer               render them with the installer package
+  cub server install --dry-run --kube-context my-cluster \
+      --oci-url https://confighub-oci.example.com
+                                               ...with the registry behind a load balancer
 
 With --installer, the manifests are rendered by ConfigHub's installer, a cub
 plugin (cub plugin install confighub/installer; 0.3.4 or later), from
@@ -89,6 +92,7 @@ func init() {
 	f.IntVar(&installOpts.APINodePort, "node-port", 0, fmt.Sprintf("Host port the API answers on (default %d)", install.DefaultAPINodePort))
 	f.IntVar(&installOpts.UINodePort, "ui-node-port", 0, fmt.Sprintf("Host port the web UI answers on (default %d)", install.DefaultUINodePort))
 	f.IntVar(&installOpts.OCINodePort, "oci-node-port", 0, fmt.Sprintf("Host port the OCI registry answers on (default %d)", install.DefaultOCINodePort))
+	f.StringVar(&installOpts.OCIURL, "oci-url", "", "URL clients reach the OCI registry at, such as https://oci.example.com, written to OCI_EXTERNAL_URL (default: the one a previous run recorded, or worked out by the server from each request)")
 	// Published now even though nothing is deployed behind it, because kind can
 	// only publish a port when it creates the node. See internal/install/kind.go.
 	f.IntVar(&installOpts.KeycloakNodePort, "keycloak-node-port", 0,

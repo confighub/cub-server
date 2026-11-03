@@ -2,7 +2,27 @@ package config
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
 )
+
+// ValidateOCIURL accepts what the server accepts for OCI_EXTERNAL_URL: empty, or
+// an http or https URL with a host, an optional port and nothing else. The
+// server refuses to start with anything else, so it is refused here, before a
+// cluster is created, rather than as a pod in CrashLoopBackOff. A path would be
+// dropped by every client that builds /v2/ URLs from it.
+func ValidateOCIURL(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" ||
+		u.User != nil || strings.Trim(u.Path, "/") != "" || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("--oci-url must be an http or https URL with no path, like https://oci.example.com or https://oci.example.com:8443; got %q", raw)
+	}
+	return nil
+}
 
 // DefaultDatabaseImage is the bundled database.
 //
@@ -67,6 +87,15 @@ type Options struct {
 	// UIURL is where a browser reaches the UI. The server advertises it, so
 	// clients that start from the API can send people to the UI.
 	UIURL string
+
+	// OCIURL is where clients reach the OCI registry, such as
+	// https://oci.example.com, when that is not what the server can work out
+	// from a request: a registry behind a load balancer that terminates TLS
+	// without forwarding headers, or on a name other than oci.<API host>. The
+	// server advertises it at /api/info, so it is what `cub cluster attach`
+	// writes into a controller's credentials, and the token realm follows it.
+	// Empty leaves the server to work the address out.
+	OCIURL string
 
 	// Host is the external hostname. Only meaningful with an ingress; it also
 	// becomes the redirect and audience values if an IdP is ever configured.
@@ -196,6 +225,9 @@ func (o *Options) Validate() error {
 
 	if o.Ingress == IngressTraefik && o.APINodePort != 0 {
 		return fmt.Errorf("--ingress=traefik routes through the ingress controller; --node-port would be a second, unrouted way in")
+	}
+	if err := ValidateOCIURL(o.OCIURL); err != nil {
+		return err
 	}
 	if o.AdminPublicJWK != "" {
 		if err := ValidateAdminPublicJWK(o.AdminPublicJWK); err != nil {

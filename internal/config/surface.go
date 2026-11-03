@@ -3,7 +3,11 @@ package config
 import (
 	"fmt"
 	"strconv"
+	"strings"
 )
+
+// OCIURLEnv is where the server reads the registry's external URL from.
+const OCIURLEnv = "OCI_EXTERNAL_URL"
 
 // Surface is everything the server reads, resolved for one instance.
 type Surface struct {
@@ -46,7 +50,9 @@ func (s *Surface) Get(name string) string {
 	return ""
 }
 
-// Preserved is what a previous run generated, keyed by variable name.
+// Preserved is what a previous run generated, keyed by variable name, and the
+// OCI_EXTERNAL_URL it was given (see OCIURLEnv), which a re-run without the flag
+// keeps rather than drops.
 //
 // Re-running the generator must not rotate anything: a fresh CONFIGHUB_TOKEN_SIGNING_KEY_JWK
 // invalidates every session on the next restart, and a fresh
@@ -131,7 +137,25 @@ func Build(opts Options, prior Preserved) (*Surface, error) {
 	// arrived on for an IP or localhost, rather than prefixing "oci.", because
 	// there is nothing for that prefix to resolve against -- which is exactly
 	// this deployment.
-	if opts.OCINodePort != 0 {
+	//
+	// Unless the operator said where the registry is. Then that is the whole
+	// answer -- host, port, scheme, and the token realm, which the server derives
+	// from it -- and the NodePort is not emitted beside it: the server reads
+	// OCI_EXTERNAL_PORT as an override of the URL's port, so the two together
+	// would advertise the URL's host on the NodePort, where nothing outside the
+	// cluster answers. A re-run that does not pass the URL again keeps the one
+	// the instance was installed with, as it keeps its generated values.
+	ociURL := strings.TrimSpace(opts.OCIURL)
+	if ociURL == "" {
+		ociURL = prior[OCIURLEnv]
+	}
+	switch {
+	case ociURL != "":
+		add(Var{
+			Name: OCIURLEnv, Placement: InConfigMap, Value: ociURL,
+			Doc: "Where clients reach the OCI registry. Advertised at /api/info, and the token realm follows it.",
+		})
+	case opts.OCINodePort != 0:
 		add(Var{
 			Name: "OCI_EXTERNAL_PORT", Placement: InConfigMap,
 			Value: strconv.Itoa(opts.OCINodePort),
