@@ -62,7 +62,15 @@ Both images read their environment once, at start, so a changed ConfigMap takes 
 
 ## Apply order
 
-Everything is applied at once except the bundled database, which carries `argocd.argoproj.io/sync-wave: "-1"`: Argo CD applies it, and waits for it to be healthy, before the server, whose init container migrates it. Applied together, the server fails until Postgres answers, and recovers when it does.
+Resources are ordered by `argocd.argoproj.io/sync-wave`, lowest first:
+
+| Wave | Resources |
+|---|---|
+| -2 | The Namespace, which everything else is created in |
+| -1 | The bundled database, which the server's init container migrates |
+| 0 | Everything else |
+
+Argo CD applies each wave, and waits for it to be healthy, before the next. A wave applied before the one before it is healthy, or everything applied at once, works too once the Namespace exists: the server's init container fails until Postgres answers, and succeeds when it restarts.
 
 ## Validation
 
