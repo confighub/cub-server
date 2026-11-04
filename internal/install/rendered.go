@@ -130,6 +130,56 @@ func renderedNodePort(outDir, service string) int {
 	return svc.Spec.Ports[0].NodePort
 }
 
+// databaseStatefulSet is the bundled Postgres, as both renderers name it.
+const databaseStatefulSet = "confighub-postgres"
+
+// claimTemplate is the part of a StatefulSet's volume claim template an
+// install chooses.
+type claimTemplate struct {
+	Spec struct {
+		VolumeClaimTemplates []struct {
+			Spec struct {
+				StorageClassName *string `yaml:"storageClassName" json:"storageClassName"`
+				Resources        struct {
+					Requests struct {
+						Storage string `yaml:"storage" json:"storage"`
+					} `yaml:"requests" json:"requests"`
+				} `yaml:"resources" json:"resources"`
+			} `yaml:"spec" json:"spec"`
+		} `yaml:"volumeClaimTemplates" json:"volumeClaimTemplates"`
+	} `yaml:"spec" json:"spec"`
+}
+
+// classAndSize reads the first claim template's StorageClass, "" when it names
+// none, and requested size.
+func (c claimTemplate) classAndSize() (string, string) {
+	if len(c.Spec.VolumeClaimTemplates) == 0 {
+		return "", ""
+	}
+	spec := c.Spec.VolumeClaimTemplates[0].Spec
+	class := ""
+	if spec.StorageClassName != nil {
+		class = *spec.StorageClassName
+	}
+	return class, spec.Resources.Requests.Storage
+}
+
+// renderedDatabaseClaim returns the StorageClass and size the rendered bundled
+// database's volume claim asks for, or empty strings when the render has no
+// bundled database or its claim names no class.
+func renderedDatabaseClaim(outDir string) (class, size string, err error) {
+	doc, err := renderedObject(outDir, "StatefulSet", databaseStatefulSet)
+	if doc == nil || err != nil {
+		return "", "", err
+	}
+	var sts claimTemplate
+	if err := yaml.Unmarshal(doc, &sts); err != nil {
+		return "", "", err
+	}
+	class, size = sts.classAndSize()
+	return class, size, nil
+}
+
 // hasKeycloak reports whether the render includes the bundled identity
 // provider, which is how any command can tell that an instance has one.
 func hasKeycloak(outDir string) bool {

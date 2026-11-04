@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -23,6 +24,48 @@ func ValidateOCIURL(raw string) error {
 	}
 	return nil
 }
+
+// storageClassName is what Kubernetes accepts as a StorageClass's name: a DNS
+// subdomain.
+var storageClassName = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
+
+// ValidateStorageClass accepts empty, which leaves the claim to the cluster's
+// default StorageClass, or a name Kubernetes would accept for one. Whether the
+// cluster has a class of that name is the cluster's to say.
+func ValidateStorageClass(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil
+	}
+	if len(name) > 253 || !storageClassName.MatchString(name) {
+		return fmt.Errorf("--storage-class %q is not a StorageClass name: lower-case letters, digits, '-' and '.'", name)
+	}
+	return nil
+}
+
+// storageQuantity is the part of Kubernetes' quantity syntax a volume size is
+// written in: a positive number with an optional binary or decimal suffix.
+var storageQuantity = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E)?$`)
+
+// ValidateStorageSize accepts empty, which is DefaultStorageSize, or a size
+// like 20Gi. Refused here rather than by the API server, whose message names
+// the StatefulSet's field rather than the flag.
+func ValidateStorageSize(size string) error {
+	size = strings.TrimSpace(size)
+	if size == "" {
+		return nil
+	}
+	m := storageQuantity.FindStringSubmatch(size)
+	// A zero-sized volume matches the syntax and provisions nothing.
+	if m == nil || strings.Trim(strings.TrimSuffix(size, m[2]), "0.") == "" {
+		return fmt.Errorf("--storage-size %q is not a volume size like 10Gi or 500Mi", size)
+	}
+	return nil
+}
+
+// DefaultStorageSize is the bundled database's volume when nothing says
+// otherwise.
+const DefaultStorageSize = "10Gi"
 
 // DefaultDatabaseImage is the bundled database.
 //
@@ -124,6 +167,14 @@ type Options struct {
 	// StorageSize for the internal database's volume.
 	StorageSize string
 
+	// StorageClass is the StorageClass the internal database's volume claim
+	// names. Empty leaves storageClassName unset, so the cluster's default
+	// class provisions it -- which kind has, and many production clusters,
+	// EKS Auto Mode among them, do not. There the claim stays Pending and the
+	// database never starts. Never "": that asks for no dynamic provisioning
+	// at all, which is a different thing.
+	StorageClass string
+
 	// APINodePort, when set, exposes the API as a NodePort on that port instead
 	// of a ClusterIP.
 	//
@@ -169,7 +220,7 @@ func (o *Options) Defaults() {
 		o.Ingress = IngressNone
 	}
 	if o.StorageSize == "" {
-		o.StorageSize = "10Gi"
+		o.StorageSize = DefaultStorageSize
 	}
 	if o.DatabaseImage == "" {
 		o.DatabaseImage = DefaultDatabaseImage
@@ -227,6 +278,15 @@ func (o *Options) Validate() error {
 		return fmt.Errorf("--ingress=traefik routes through the ingress controller; --node-port would be a second, unrouted way in")
 	}
 	if err := ValidateOCIURL(o.OCIURL); err != nil {
+		return err
+	}
+	if o.Database == DatabaseExternal && o.StorageClass != "" {
+		return fmt.Errorf("--storage-class applies to the bundled database; an external one has no volume here")
+	}
+	if err := ValidateStorageClass(o.StorageClass); err != nil {
+		return err
+	}
+	if err := ValidateStorageSize(o.StorageSize); err != nil {
 		return err
 	}
 	if o.AdminPublicJWK != "" {

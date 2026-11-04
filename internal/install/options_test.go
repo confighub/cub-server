@@ -241,12 +241,14 @@ func TestReadPriorKeepsTheOCIURL(t *testing.T) {
 // Installing into an existing cluster asks where the registry is reached, and
 // asks again until the answer is one the server would accept.
 func TestInterviewAsksForTheOCIURLOnAnExistingCluster(t *testing.T) {
+	// A cluster with a default StorageClass, so nothing is asked about one.
+	cluster := &fakeCluster{classes: []storageClass{{Name: "standard", Default: true}}}
 	o := Options{
 		Target: TargetContext, KubeContext: "prod", APINodePort: 32180,
 		Database: string(config.DatabaseInternal), NewAdminKey: true, Image: "img:v1",
 	}
 	var out strings.Builder
-	if err := Interview(strings.NewReader("oci.example.com\nhttps://confighub-oci.example.com\n"), &out, &o); err != nil {
+	if err := interview(strings.NewReader("oci.example.com\nhttps://confighub-oci.example.com\n"), &out, &o, cluster.connect); err != nil {
 		t.Fatal(err)
 	}
 	if o.OCIURL != "https://confighub-oci.example.com" {
@@ -261,7 +263,7 @@ func TestInterviewAsksForTheOCIURLOnAnExistingCluster(t *testing.T) {
 		Target: TargetContext, KubeContext: "prod", APINodePort: 32180,
 		Database: string(config.DatabaseInternal), NewAdminKey: true, Image: "img:v1",
 	}
-	if err := Interview(strings.NewReader("\n"), io.Discard, &blank); err != nil {
+	if err := interview(strings.NewReader("\n"), io.Discard, &blank, cluster.connect); err != nil {
 		t.Fatal(err)
 	}
 	if blank.OCIURL != "" {
@@ -274,7 +276,7 @@ func TestInterviewAsksForTheOCIURLOnAnExistingCluster(t *testing.T) {
 		Database: string(config.DatabaseInternal), NewAdminKey: true, Image: "img:v1",
 	}
 	var kindOut strings.Builder
-	if err := Interview(strings.NewReader(""), &kindOut, &kind); err != nil {
+	if err := interview(strings.NewReader(""), &kindOut, &kind, cluster.connect); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(kindOut.String(), "OCI registry") {

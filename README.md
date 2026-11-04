@@ -350,6 +350,39 @@ cub server install --kube-context my-cluster --oci-url https://confighub-oci.exa
 scheme's default when the URL names none. `install -i` asks for it when installing into a cluster
 you already have. A re-run without `--oci-url` keeps the one the instance was installed with. The server reads it from v0.10.4.
 
+### The database's volume
+
+The bundled Postgres keeps its data on a PersistentVolumeClaim that, unless told otherwise, names
+no StorageClass, so the cluster's default class provisions it. kind has one. Many clusters don't
+— EKS Auto Mode ships with none — and there the claim stays `Pending` and the database never
+starts. Name the class the volume comes from, and its size if 10Gi isn't right:
+
+```sh
+cub server install --kube-context my-cluster --storage-class auto-gp3
+cub server install --kube-context my-cluster --storage-class auto-gp3 --storage-size 50Gi --dry-run
+```
+
+Before creating anything, an install into a cluster you already have checks that it has a default
+StorageClass (one annotated `storageclass.kubernetes.io/is-default-class: "true"`). With none,
+and no `--storage-class`, it stops and lists the classes the cluster does have; `--dry-run` checks
+too, since a render applied by hand fails the same way. A cluster whose StorageClasses can't be
+read from here, such as through a kubeconfig whose RBAC stops at the namespace, is warned about
+rather than refused, and the rendered claim carries a comment saying what it needs. This never
+creates a StorageClass: which one to use is the cluster owner's call.
+
+If the database's claim does stay `Pending`, the install says so rather than timing out: it
+watches the claim while it waits, stops as soon as the claim's events say it won't bind (no class
+and no volume, or a class that doesn't exist), and otherwise reports the claim and its latest
+events if it is still `Pending` when the wait runs out.
+
+`install -i` lists the cluster's StorageClasses and asks for one when it has no default. A re-run
+without the flags keeps the class and size the instance was installed with, and `cub server
+upgrade` changes only the Deployments' images, so it keeps them too. A StatefulSet's claim
+template can't change in place, so an install that would change them on a running database is
+refused before anything is applied, with the commands to delete a database that never started.
+A database you run yourself, such as RDS, needs none of this: `--database=external
+--database-url <url>`.
+
 ## Re-running is safe
 
 Every generated value — the token signing key, the database password, the administrator's public

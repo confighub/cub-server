@@ -128,6 +128,11 @@ func renderDatabase(opts Options) ([]byte, error) {
 		edit{doc: 0, path: "spec.template.spec.containers.0.image", value: opts.DatabaseImage},
 		edit{doc: 0, path: "spec.volumeClaimTemplates.0.spec.resources.requests.storage", value: opts.StorageSize},
 	)
+	// Only when one is named. Unset is the cluster's default class; an empty
+	// string would ask for no dynamic provisioning at all.
+	if opts.StorageClass != "" {
+		edits = append(edits, edit{doc: 0, path: "spec.volumeClaimTemplates.0.spec.storageClassName", value: opts.StorageClass, insert: true})
+	}
 	if err := apply(docs, edits); err != nil {
 		return nil, err
 	}

@@ -68,6 +68,9 @@ func Run(ctx context.Context, u UI, o *Options) error {
 	if err := refuseIfAnotherInstance(ctx, kube, o, false); err != nil {
 		return err
 	}
+	if err := refuseDatabaseClaimChange(ctx, kube, o); err != nil {
+		return err
+	}
 
 	if err := applyManifests(ctx, u, o, kube, files, "Installing ConfigHub"); err != nil {
 		return err
@@ -104,6 +107,10 @@ func preflight(ctx context.Context, u UI, o *Options) error {
 		return err
 	}
 	u.detail("kubectl: found")
+
+	if err := checkStorageClass(ctx, u, o, kubeEnv{context: o.KubeContext}); err != nil {
+		return err
+	}
 
 	if o.Installer {
 		if err := validateForInstaller(o.deploymentOptions()); err != nil {
@@ -194,6 +201,13 @@ func generate(ctx context.Context, u UI, o *Options) ([]config.File, string, err
 	u.detail("ui image: %s", opts.UIImage)
 	if ociURL := surface.Get(config.OCIURLEnv); ociURL != "" {
 		u.detail("OCI registry advertised at %s (OCI_EXTERNAL_URL)", ociURL)
+	}
+	if opts.Database == config.DatabaseInternal {
+		class := "StorageClass " + opts.StorageClass
+		if opts.StorageClass == "" {
+			class = "the cluster's default StorageClass"
+		}
+		u.detail("database volume: %s from %s", opts.StorageSize, class)
 	}
 
 	return files, keyPath, nil
@@ -321,7 +335,7 @@ func heldAdminKeyName(publicJWK string) string {
 // package prints can be pasted rather than adjusted.
 func outDirFlag(o *Options) string {
 	def, err := defaultOutDir(o.instanceName())
-	if err == nil && o.OutDir == def {
+	if o.OutDir == "" || (err == nil && o.OutDir == def) {
 		return ""
 	}
 	return " --out-dir " + o.OutDir
@@ -431,7 +445,7 @@ func awaitReady(ctx context.Context, u UI, o *Options, kube kubeEnv) error {
 
 	if o.Database == string(config.DatabaseInternal) {
 		u.detail("database...")
-		if err := kube.waitForRollout(ctx, o.Namespace, "statefulset", "confighub-postgres", rolloutTimeout); err != nil {
+		if err := awaitDatabase(ctx, o, kube, claimCheckInterval); err != nil {
 			return err
 		}
 	}

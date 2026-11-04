@@ -26,7 +26,23 @@ spec:
         PostgreSQL in the install namespace, for evaluation. It reads its
         password from POSTGRES_PASSWORD in confighub-secret-env, which
         DATABASE_URL has to embed. Without it, DATABASE_URL names a database
-        you run.
+        you run. Its volume comes from the cluster's default StorageClass,
+        unless storage_class names one: a cluster with no default leaves the
+        claim Pending.
+      transformers:
+        # Unset unless storage_class names a class: an empty storageClassName
+        # asks for no dynamic provisioning at all, not for the default class.
+        - toolchain: Kubernetes/YAML
+          description: Size the database's volume, and name its StorageClass.
+          whereResource: "ConfigHub.ResourceType = 'apps/v1/StatefulSet' AND ConfigHub.ResourceNameWithoutScope = 'confighub-postgres'"
+          invocations:
+            - name: set-yq
+              args:
+                - |
+                  .spec.volumeClaimTemplates[0].spec.resources.requests.storage = {{ printf "%q" .Inputs.storage_size }}
+                  {{- if .Inputs.storage_class }}
+                  | .spec.volumeClaimTemplates[0].spec.storageClassName = {{ printf "%q" .Inputs.storage_class }}
+                  {{- end }}
     - name: keycloak
       path: components/keycloak
       description: |
@@ -180,6 +196,19 @@ spec:
       type: string
       default: ""
       prompt: Hostname Traefik routes to the API (traefik component)
+    - name: storage_class
+      type: string
+      default: ""
+      prompt: StorageClass for the database's volume, or blank for the cluster's default (bundled-postgres component)
+      description: |
+        The storageClassName of the bundled database's volume claim. Empty
+        leaves it unset, so the cluster's default StorageClass provisions it;
+        on a cluster with none, such as EKS Auto Mode, name one, or the claim
+        stays Pending and the database never starts.
+    - name: storage_size
+      type: string
+      default: 10Gi
+      prompt: Size of the database's volume (bundled-postgres component)
     - name: keycloak_url
       type: string
       default: ""

@@ -60,6 +60,8 @@ installer setup --pull oci://ghcr.io/confighub/packages/confighub:0.10.4 \
 | `oci_url` | empty | `OCI_EXTERNAL_URL`: the scheme, host and port the server advertises the OCI registry at, like `https://oci.example.com`. Empty, the server derives them from the client's request. Set it behind a load balancer that terminates TLS without forwarded headers, or for a registry on a name other than `oci.<API host>`. |
 | `ui_node_port` | `32183` | With `nodeport`: the UI's NodePort. |
 | `host` | `confighubplaceholder` | With `traefik`: the hostname routed to the API. |
+| `storage_class` | empty | With `bundled-postgres`: the `storageClassName` of the database's volume claim. Empty leaves it unset, so the cluster's default StorageClass provisions it; on a cluster with none, such as EKS Auto Mode, the claim stays `Pending` until one is named. |
+| `storage_size` | `10Gi` | With `bundled-postgres`: the size of the database's volume. |
 | `keycloak_url` | `confighubplaceholder` | With `keycloak`: where a browser reaches Keycloak, without a trailing slash. It is the issuer of every token. |
 | `keycloak_client_jwks` | `confighubplaceholder` | With `keycloak`: the public half of `KEYCLOAK_CLIENT_PRIVATE_KEY_JWK`, as `cub server key keycloak-client` prints it to stderr. |
 | `keycloak_node_port` | `32182` | With `keycloak` and `nodeport`: Keycloak's NodePort. |
