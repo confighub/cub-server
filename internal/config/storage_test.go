@@ -27,8 +27,13 @@ func TestStorageClassOnTheDatabaseClaim(t *testing.T) {
 // dynamic provisioning, absent for the cluster's default class.
 func TestNoStorageClassLeavesTheDefault(t *testing.T) {
 	db := renderFiles(t, storageTestOptions("", ""))[ConfigDir+"/30-database.yaml"]
-	if strings.Contains(db, "storageClassName") {
+	if strings.Contains(db, "storageClassName:") {
 		t.Errorf("the claim names a StorageClass with none given:\n%s", db)
+	}
+	// A render applied by hand says, beside the claim, what it needs of the
+	// cluster.
+	if !strings.Contains(db, "On a cluster with no default") || !strings.Contains(db, "--storage-class") {
+		t.Errorf("the claim carries no word on the StorageClass it needs:\n%s", db)
 	}
 	if !strings.Contains(db, "storage: "+DefaultStorageSize) {
 		t.Errorf("the claim does not ask for %s:\n%s", DefaultStorageSize, db)

@@ -67,6 +67,10 @@ spec:
   volumeClaimTemplates:
   - metadata:
       name: data
+    # No storageClassName unless the storage_class input names one, so the cluster's default
+    # StorageClass provisions the volume. On a cluster with no default, such as
+    # EKS Auto Mode, the claim stays Pending and Postgres never starts: name a
+    # class with the storage_class input, or set storageClassName here.
     spec:
       accessModes:
       - ReadWriteOnce

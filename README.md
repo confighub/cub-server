@@ -362,6 +362,19 @@ cub server install --kube-context my-cluster --storage-class auto-gp3
 cub server install --kube-context my-cluster --storage-class auto-gp3 --storage-size 50Gi --dry-run
 ```
 
+Before creating anything, an install into a cluster you already have checks that it has a default
+StorageClass (one annotated `storageclass.kubernetes.io/is-default-class: "true"`). With none,
+and no `--storage-class`, it stops and lists the classes the cluster does have; `--dry-run` checks
+too, since a render applied by hand fails the same way. A cluster whose StorageClasses can't be
+read from here, such as through a kubeconfig whose RBAC stops at the namespace, is warned about
+rather than refused, and the rendered claim carries a comment saying what it needs. This never
+creates a StorageClass: which one to use is the cluster owner's call.
+
+If the database's claim does stay `Pending`, the install says so rather than timing out: it
+watches the claim while it waits, stops as soon as the claim's events say it won't bind (no class
+and no volume, or a class that doesn't exist), and otherwise reports the claim and its latest
+events if it is still `Pending` when the wait runs out.
+
 `install -i` lists the cluster's StorageClasses and asks for one when it has no default. A re-run
 without the flags keeps the class and size the instance was installed with, and `cub server
 upgrade` changes only the Deployments' images, so it keeps them too. A StatefulSet's claim

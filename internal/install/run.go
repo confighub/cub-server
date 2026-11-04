@@ -108,6 +108,10 @@ func preflight(ctx context.Context, u UI, o *Options) error {
 	}
 	u.detail("kubectl: found")
 
+	if err := checkStorageClass(ctx, u, o); err != nil {
+		return err
+	}
+
 	if o.Installer {
 		if err := validateForInstaller(o.deploymentOptions()); err != nil {
 			return err
@@ -331,7 +335,7 @@ func heldAdminKeyName(publicJWK string) string {
 // package prints can be pasted rather than adjusted.
 func outDirFlag(o *Options) string {
 	def, err := defaultOutDir(o.instanceName())
-	if err == nil && o.OutDir == def {
+	if o.OutDir == "" || (err == nil && o.OutDir == def) {
 		return ""
 	}
 	return " --out-dir " + o.OutDir
@@ -441,7 +445,7 @@ func awaitReady(ctx context.Context, u UI, o *Options, kube kubeEnv) error {
 
 	if o.Database == string(config.DatabaseInternal) {
 		u.detail("database...")
-		if err := kube.waitForRollout(ctx, o.Namespace, "statefulset", "confighub-postgres", rolloutTimeout); err != nil {
+		if err := awaitDatabase(ctx, o, kube); err != nil {
 			return err
 		}
 	}

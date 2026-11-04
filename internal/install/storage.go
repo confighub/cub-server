@@ -74,6 +74,65 @@ func hasDefaultClass(classes []storageClass) bool {
 	return false
 }
 
+// checkStorageClass refuses to install the bundled database into a cluster that
+// has no default StorageClass, when --storage-class does not name one: its
+// claim would stay Pending, the database would never start, and the install
+// would time out waiting for it with nothing saying why.
+//
+// Only for a cluster of the operator's own; a kind cluster always has a
+// default. Checked with --dry-run too, since a render applied by hand to such a
+// cluster fails the same way. A cluster whose StorageClasses can't be read --
+// unreachable from here, or a kubeconfig whose RBAC stops at the namespace --
+// is warned about rather than refused: it may well have a default.
+func checkStorageClass(ctx context.Context, u UI, o *Options) error {
+	if o.Target != TargetContext || o.Database != string(config.DatabaseInternal) || o.StorageClass != "" {
+		return nil
+	}
+	classes, err := listStorageClasses(ctx, kubeEnv{context: o.KubeContext})
+	if err != nil {
+		u.warn("could not list the StorageClasses of %q, so not checking it has a default one:", o.KubeContext)
+		u.warn("  %s", lastLine(err.Error()))
+		u.warn("without one, the database's volume claim stays Pending; pass --storage-class to name a class")
+		return nil
+	}
+	for _, c := range classes {
+		if c.Default {
+			u.detail("storage: %s, the cluster's default StorageClass", c.Name)
+			return nil
+		}
+	}
+
+	var lines []string
+	if len(classes) == 0 {
+		lines = append(lines, "    It has no StorageClasses at all; ask whoever runs it which to use.")
+	} else {
+		lines = append(lines, "    Its StorageClasses:")
+		for _, c := range classes {
+			lines = append(lines, fmt.Sprintf("      %s (%s)", c.Name, c.Provisioner))
+		}
+	}
+	example := "<name>"
+	if len(classes) > 0 {
+		example = classes[0].Name
+	}
+	return fmt.Errorf(
+		"the cluster %q has no default StorageClass, so the bundled database's volume claim\n"+
+			"    would stay Pending and the database would never start.\n"+
+			"%s\n\n"+
+			"    Name the class its volume comes from:\n"+
+			"      cub server install --kube-context %s --storage-class %s\n\n"+
+			"    Or bring your own database, such as RDS, and need no volume here:\n"+
+			"      cub server install --kube-context %s --database=external --database-url <url>",
+		o.KubeContext, strings.Join(lines, "\n"), o.KubeContext, example, o.KubeContext)
+}
+
+// lastLine is the last line of s: of an error from run, kubectl's own message,
+// such as a Forbidden, after the command line that failed.
+func lastLine(s string) string {
+	s = strings.TrimSpace(s)
+	return s[strings.LastIndex(s, "\n")+1:]
+}
+
 // liveDatabaseClaim reads the StorageClass and size of the claim template of the
 // bundled database's StatefulSet in the cluster, and whether there is one. A
 // variable so that the check can be tested without a cluster.

@@ -3,6 +3,7 @@ package install
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -271,5 +272,77 @@ func TestRefuseDatabaseClaimChange(t *testing.T) {
 	stubLiveClaim(t, "auto-gp3", "10Gi", true)
 	if err := refuseDatabaseClaimChange(context.Background(), kube, o); err == nil {
 		t.Error("a resized claim template was not refused")
+	}
+}
+
+// An install into a cluster with no default StorageClass, and none named, stops
+// before anything is created, listing the classes and both ways past it.
+func TestCheckStorageClassWithNoDefault(t *testing.T) {
+	stubStorageClasses(t, []storageClass{
+		{Name: "auto-gp3", Provisioner: "ebs.csi.eks.amazonaws.com"},
+		{Name: "efs", Provisioner: "efs.csi.aws.com"},
+	}, nil)
+	o := &Options{Target: TargetContext, KubeContext: "eks", Database: string(config.DatabaseInternal)}
+	err := checkStorageClass(context.Background(), UI{Out: io.Discard}, o)
+	if err == nil {
+		t.Fatal("no default StorageClass was not refused")
+	}
+	for _, want := range []string{
+		`"eks" has no default StorageClass`,
+		"auto-gp3 (ebs.csi.eks.amazonaws.com)",
+		"efs (efs.csi.aws.com)",
+		"--kube-context eks --storage-class auto-gp3",
+		"--database=external --database-url <url>",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not say %q:\n%v", want, err)
+		}
+	}
+
+	stubStorageClasses(t, nil, nil)
+	err = checkStorageClass(context.Background(), UI{Out: io.Discard}, o)
+	if err == nil || !strings.Contains(err.Error(), "no StorageClasses at all") {
+		t.Errorf("a cluster with no StorageClasses: got %v", err)
+	}
+}
+
+// Nothing to refuse with a default class, a class named, an external database,
+// or a kind cluster, which always has a default.
+func TestCheckStorageClassPasses(t *testing.T) {
+	calls := stubStorageClasses(t, []storageClass{{Name: "gp2", Default: true}}, nil)
+	o := &Options{Target: TargetContext, KubeContext: "eks", Database: string(config.DatabaseInternal)}
+	if err := checkStorageClass(context.Background(), UI{Out: io.Discard}, o); err != nil {
+		t.Errorf("a cluster with a default: %v", err)
+	}
+
+	stubStorageClasses(t, nil, nil)
+	for name, o := range map[string]*Options{
+		"--storage-class":     {Target: TargetContext, KubeContext: "eks", Database: string(config.DatabaseInternal), StorageClass: "auto-gp3"},
+		"--database=external": {Target: TargetContext, KubeContext: "eks", Database: string(config.DatabaseExternal)},
+		"kind":                {Target: TargetKind, ClusterName: "confighub", Database: string(config.DatabaseInternal)},
+	} {
+		if err := checkStorageClass(context.Background(), UI{Out: io.Discard}, o); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if *calls != 1 {
+		t.Errorf("listed StorageClasses %d times; only the first case needs to", *calls)
+	}
+}
+
+// A cluster whose StorageClasses can't be read may well have a default: the
+// install warns, says what to do if it has none, and goes on.
+func TestCheckStorageClassUnreadable(t *testing.T) {
+	stubStorageClasses(t, nil, errors.New("kubectl get storageclass: exit status 1\n"+
+		`Error from server (Forbidden): storageclasses.storage.k8s.io is forbidden`))
+	o := &Options{Target: TargetContext, KubeContext: "eks", Database: string(config.DatabaseInternal), DryRun: true}
+	var out strings.Builder
+	if err := checkStorageClass(context.Background(), UI{Out: &out}, o); err != nil {
+		t.Fatalf("an unreadable cluster was refused: %v", err)
+	}
+	for _, want := range []string{"Forbidden", "--storage-class"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("the warning does not say %q:\n%s", want, out.String())
+		}
 	}
 }
