@@ -24,6 +24,17 @@ import (
 // Interview asks what it needs and fills o. A flag already set on the command
 // line is taken as answered and not asked about.
 func Interview(in io.Reader, out io.Writer, o *Options) error {
+	return interview(in, out, o, connectKubeContext)
+}
+
+// connectKubeContext reaches the cluster of a kubeconfig context with kubectl.
+func connectKubeContext(kubeContext string) storageCluster {
+	return kubeEnv{context: kubeContext}
+}
+
+// interview is Interview, reaching the cluster it is asked about through
+// connect, once the context is known.
+func interview(in io.Reader, out io.Writer, o *Options, connect func(kubeContext string) storageCluster) error {
 	r := bufio.NewReader(in)
 
 	fmt.Fprintln(out, "This installs a ConfigHub server you own, and signs you in to it.")
@@ -121,7 +132,7 @@ func Interview(in io.Reader, out io.Writer, o *Options) error {
 		}
 	}
 
-	if err := askStorageClass(r, out, o); err != nil {
+	if err := askStorageClass(r, out, o, connect); err != nil {
 		return err
 	}
 
@@ -177,7 +188,7 @@ func Interview(in io.Reader, out io.Writer, o *Options) error {
 // the default class is the answer, and asking would be a keystroke tax: kind
 // has one, and so does a cluster that names one. Nor on a re-run whose previous
 // render named one, which the install keeps.
-func askStorageClass(r *bufio.Reader, out io.Writer, o *Options) error {
+func askStorageClass(r *bufio.Reader, out io.Writer, o *Options, connect func(kubeContext string) storageCluster) error {
 	if o.Target != TargetContext || o.StorageClass != "" ||
 		(o.Database != "" && o.Database != string(config.DatabaseInternal)) {
 		return nil
@@ -189,7 +200,7 @@ func askStorageClass(r *bufio.Reader, out io.Writer, o *Options) error {
 	if recorded, _, _ := renderedDatabaseClaim(outDir); recorded != "" {
 		return nil
 	}
-	classes, err := listStorageClasses(context.Background(), kubeEnv{context: o.KubeContext})
+	classes, err := connect(o.KubeContext).storageClasses(context.Background())
 	if err != nil {
 		// Not fatal: the install itself says what is wrong with the context.
 		fmt.Fprintf(out, "\nCould not list the StorageClasses of %q, so not asking which the database uses.\n", o.KubeContext)

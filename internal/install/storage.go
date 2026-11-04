@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/confighub/cub-server/internal/config"
 )
@@ -33,10 +34,26 @@ type storageClass struct {
 	Default     bool
 }
 
-// listStorageClasses reads the cluster's StorageClasses, by name. A variable so
-// that the interview can be tested without a cluster.
-var listStorageClasses = func(ctx context.Context, kube kubeEnv) ([]storageClass, error) {
-	out, err := run(ctx, toolKubectl.name, kube.args("get", "storageclass", "-o", "json")...)
+// storageCluster is what the storage checks and the database's wait read from
+// the cluster. kubeEnv reads it with kubectl; the tests pass a fake.
+type storageCluster interface {
+	// storageClasses lists the cluster's StorageClasses, by name.
+	storageClasses(ctx context.Context) ([]storageClass, error)
+	// databaseClaimTemplate reads the StorageClass and size of the bundled
+	// database's StatefulSet's claim template, and whether there is one.
+	databaseClaimTemplate(ctx context.Context, namespace string) (class, size string, exists bool, err error)
+	// claim reads a claim and its events, or nil when there is no such claim.
+	claim(ctx context.Context, namespace, name string) (*claimStatus, error)
+	// waitForRollout blocks until a workload's rollout completes.
+	waitForRollout(ctx context.Context, namespace, kind, name string, timeout time.Duration) error
+	// commandFlags is the kubectl flags that reach the cluster, for commands
+	// printed to paste.
+	commandFlags() string
+}
+
+// storageClasses reads the cluster's StorageClasses, by name.
+func (k kubeEnv) storageClasses(ctx context.Context) ([]storageClass, error) {
+	out, err := run(ctx, toolKubectl.name, k.args("get", "storageclass", "-o", "json")...)
 	if err != nil {
 		return nil, err
 	}
@@ -84,11 +101,11 @@ func hasDefaultClass(classes []storageClass) bool {
 // cluster fails the same way. A cluster whose StorageClasses can't be read --
 // unreachable from here, or a kubeconfig whose RBAC stops at the namespace --
 // is warned about rather than refused: it may well have a default.
-func checkStorageClass(ctx context.Context, u UI, o *Options) error {
+func checkStorageClass(ctx context.Context, u UI, o *Options, cluster storageCluster) error {
 	if o.Target != TargetContext || o.Database != string(config.DatabaseInternal) || o.StorageClass != "" {
 		return nil
 	}
-	classes, err := listStorageClasses(ctx, kubeEnv{context: o.KubeContext})
+	classes, err := cluster.storageClasses(ctx)
 	if err != nil {
 		u.warn("could not list the StorageClasses of %q, so not checking it has a default one:", o.KubeContext)
 		u.warn("  %s", lastLine(err.Error()))
@@ -133,11 +150,10 @@ func lastLine(s string) string {
 	return s[strings.LastIndex(s, "\n")+1:]
 }
 
-// liveDatabaseClaim reads the StorageClass and size of the claim template of the
-// bundled database's StatefulSet in the cluster, and whether there is one. A
-// variable so that the check can be tested without a cluster.
-var liveDatabaseClaim = func(ctx context.Context, kube kubeEnv, namespace string) (class, size string, exists bool, err error) {
-	out, err := run(ctx, toolKubectl.name, kube.args(
+// databaseClaimTemplate reads the StorageClass and size of the claim template of
+// the bundled database's StatefulSet in the cluster, and whether there is one.
+func (k kubeEnv) databaseClaimTemplate(ctx context.Context, namespace string) (class, size string, exists bool, err error) {
+	out, err := run(ctx, toolKubectl.name, k.args(
 		"-n", namespace, "get", "statefulset", databaseStatefulSet, "-o", "json", "--ignore-not-found")...)
 	if err != nil {
 		return "", "", false, err
@@ -163,11 +179,11 @@ var liveDatabaseClaim = func(ctx context.Context, kube kubeEnv, namespace string
 // likeliest way here is the one --storage-class exists for: an install whose
 // database never started, because the cluster has no default StorageClass,
 // re-run with one.
-func refuseDatabaseClaimChange(ctx context.Context, kube kubeEnv, o *Options) error {
+func refuseDatabaseClaimChange(ctx context.Context, cluster storageCluster, o *Options) error {
 	if o.Database != string(config.DatabaseInternal) {
 		return nil
 	}
-	liveClass, liveSize, exists, err := liveDatabaseClaim(ctx, kube, o.Namespace)
+	liveClass, liveSize, exists, err := cluster.databaseClaimTemplate(ctx, o.Namespace)
 	if err != nil || !exists {
 		return err
 	}
@@ -184,7 +200,7 @@ func refuseDatabaseClaimChange(ctx context.Context, kube kubeEnv, o *Options) er
 		}
 		return size + " from " + class
 	}
-	claim := "data-" + databaseStatefulSet + "-0"
+	k := cluster.commandFlags()
 	return fmt.Errorf(
 		"the bundled database's volume is %s, and this install asks for %s.\n"+
 			"    A StatefulSet's volume claim template cannot be changed in place.\n\n"+
@@ -196,16 +212,16 @@ func refuseDatabaseClaimChange(ctx context.Context, kube kubeEnv, o *Options) er
 			"    If it holds data, keep the volume it has: re-run with --storage-class and\n"+
 			"    --storage-size matching it, or with no flag to keep what %s recorded.",
 		describe(liveClass, liveSize), describe(opts.StorageClass, opts.StorageSize),
-		kubeFlags(kube), o.Namespace, claim,
-		kubeFlags(kube), o.Namespace, databaseStatefulSet,
-		kubeFlags(kube), o.Namespace, claim,
+		k, o.Namespace, databaseClaim,
+		k, o.Namespace, databaseStatefulSet,
+		k, o.Namespace, databaseClaim,
 		o.OutDir)
 }
 
-// kubeFlags echoes the kubeconfig and context a command runs against, so a
+// commandFlags echoes the kubeconfig and context a command runs against, so a
 // printed kubectl command can be pasted as it is.
-func kubeFlags(kube kubeEnv) string {
-	args := kube.args()
+func (k kubeEnv) commandFlags() string {
+	args := k.args()
 	if len(args) == 0 {
 		return ""
 	}

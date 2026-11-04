@@ -21,9 +21,8 @@ import (
 // replica, named after its claim template, data.
 const databaseClaim = "data-" + databaseStatefulSet + "-0"
 
-// claimCheckInterval is how often the wait looks at the claim. A variable so the
-// tests don't wait for it.
-var claimCheckInterval = 5 * time.Second
+// claimCheckInterval is how often the wait looks at the claim.
+const claimCheckInterval = 5 * time.Second
 
 // claimStatus is what the wait needs to know about a claim.
 type claimStatus struct {
@@ -59,10 +58,10 @@ func (c *claimStatus) neverBinds() bool {
 	return false
 }
 
-// readClaim reads a claim and its events, or returns nil when there is no such
-// claim yet. A variable so the wait can be tested without a cluster.
-var readClaim = func(ctx context.Context, kube kubeEnv, namespace, name string) (*claimStatus, error) {
-	out, err := run(ctx, toolKubectl.name, kube.args("-n", namespace, "get", "pvc", name, "-o", "json", "--ignore-not-found")...)
+// claim reads a claim and its events, or returns nil when there is no such claim
+// yet.
+func (k kubeEnv) claim(ctx context.Context, namespace, name string) (*claimStatus, error) {
+	out, err := run(ctx, toolKubectl.name, k.args("-n", namespace, "get", "pvc", name, "-o", "json", "--ignore-not-found")...)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +84,7 @@ var readClaim = func(ctx context.Context, kube kubeEnv, namespace, name string) 
 		status.StorageClass = *pvc.Spec.StorageClassName
 	}
 
-	out, err = run(ctx, toolKubectl.name, kube.args("-n", namespace, "get", "events",
+	out, err = run(ctx, toolKubectl.name, k.args("-n", namespace, "get", "events",
 		"--field-selector", "involvedObject.kind=PersistentVolumeClaim,involvedObject.name="+name,
 		"--sort-by", ".lastTimestamp", "-o", "json")...)
 	if err != nil {
@@ -108,22 +107,17 @@ var readClaim = func(ctx context.Context, kube kubeEnv, namespace, name string) 
 	return status, nil
 }
 
-// rollout waits for a workload's rollout. A variable so the database's wait can
-// be tested without a cluster.
-var rollout = func(ctx context.Context, kube kubeEnv, namespace, kind, name string, timeout time.Duration) error {
-	return kube.waitForRollout(ctx, namespace, kind, name, timeout)
-}
-
-// awaitDatabase waits for the bundled database's rollout, watching its claim.
-func awaitDatabase(ctx context.Context, o *Options, kube kubeEnv) error {
+// awaitDatabase waits for the bundled database's rollout, looking at its claim
+// every checkEvery.
+func awaitDatabase(ctx context.Context, o *Options, cluster storageCluster, checkEvery time.Duration) error {
 	waitCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		done <- rollout(waitCtx, kube, o.Namespace, "statefulset", databaseStatefulSet, rolloutTimeout)
+		done <- cluster.waitForRollout(waitCtx, o.Namespace, "statefulset", databaseStatefulSet, rolloutTimeout)
 	}()
 
-	tick := time.NewTicker(claimCheckInterval)
+	tick := time.NewTicker(checkEvery)
 	defer tick.Stop()
 	for {
 		select {
@@ -131,24 +125,25 @@ func awaitDatabase(ctx context.Context, o *Options, kube kubeEnv) error {
 			if err == nil || ctx.Err() != nil {
 				return err
 			}
-			if claim, _ := readClaim(ctx, kube, o.Namespace, databaseClaim); claim != nil && claim.Phase == "Pending" {
-				return pendingClaimError(o, kube, claim, "still Pending after "+rolloutTimeout.String())
+			if claim, _ := cluster.claim(ctx, o.Namespace, databaseClaim); claim != nil && claim.Phase == "Pending" {
+				return pendingClaimError(o, cluster.commandFlags(), claim, "still Pending after "+rolloutTimeout.String())
 			}
 			return err
 		case <-tick.C:
-			claim, err := readClaim(ctx, kube, o.Namespace, databaseClaim)
+			claim, err := cluster.claim(ctx, o.Namespace, databaseClaim)
 			if err == nil && claim.neverBinds() {
 				cancel()
 				<-done
-				return pendingClaimError(o, kube, claim, "Pending, and its events say it won't bind")
+				return pendingClaimError(o, cluster.commandFlags(), claim, "Pending, and its events say it won't bind")
 			}
 		}
 	}
 }
 
 // pendingClaimError says why the database's claim is Pending, as far as the
-// claim knows, and what to do about it.
-func pendingClaimError(o *Options, kube kubeEnv, claim *claimStatus, state string) error {
+// claim knows, and what to do about it. k is the kubectl flags that reach the
+// cluster.
+func pendingClaimError(o *Options, k string, claim *claimStatus, state string) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "the database's volume claim %s is %s, so Postgres can't start.\n", databaseClaim, state)
 	if claim.StorageClass == "" {
@@ -173,7 +168,6 @@ func pendingClaimError(o *Options, kube kubeEnv, claim *claimStatus, state strin
 			fmt.Fprintf(&b, "      %s %s%s: %s\n", e.Type, e.Reason, count, e.Message)
 		}
 	}
-	k := kubeFlags(kube)
 	fmt.Fprintf(&b, "\n    kubectl%s -n %s describe pvc %s\n", k, o.Namespace, databaseClaim)
 
 	// A StatefulSet's claim template can't change in place, so another class

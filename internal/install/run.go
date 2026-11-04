@@ -108,7 +108,7 @@ func preflight(ctx context.Context, u UI, o *Options) error {
 	}
 	u.detail("kubectl: found")
 
-	if err := checkStorageClass(ctx, u, o); err != nil {
+	if err := checkStorageClass(ctx, u, o, kubeEnv{context: o.KubeContext}); err != nil {
 		return err
 	}
 
@@ -445,7 +445,7 @@ func awaitReady(ctx context.Context, u UI, o *Options, kube kubeEnv) error {
 
 	if o.Database == string(config.DatabaseInternal) {
 		u.detail("database...")
-		if err := awaitDatabase(ctx, o, kube); err != nil {
+		if err := awaitDatabase(ctx, o, kube, claimCheckInterval); err != nil {
 			return err
 		}
 	}
