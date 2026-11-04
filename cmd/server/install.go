@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/confighub/cub-server/internal/config"
 	"github.com/confighub/cub-server/internal/install"
 )
 
@@ -39,6 +40,7 @@ Examples:
   cub server install --dry-run                 render the manifests, create nothing
   cub server install --installer               render them with the installer package
   cub server install --oci-url <url>           advertise the OCI registry at <url>
+  cub server install --storage-class <name>    put the database's volume on <name>
 
 With --installer, the manifests are rendered by ConfigHub's installer, a cub
 plugin (cub plugin install confighub/installer; 0.3.4 or later), from
@@ -86,6 +88,8 @@ func init() {
 
 	f.StringVar(&installOpts.Database, "database", "", "internal (bundled Postgres) or external (default internal)")
 	f.StringVar(&installOpts.DatabaseURL, "database-url", "", "Connection string, with --database=external")
+	f.StringVar(&installOpts.StorageClass, "storage-class", "", "StorageClass the bundled database's volume claim names; needed on a cluster with no default StorageClass (default: the one a previous run recorded, else the cluster's default)")
+	f.StringVar(&installOpts.StorageSize, "storage-size", "", "Size of the bundled database's volume, such as 20Gi (default: the one a previous run recorded, else "+config.DefaultStorageSize+")")
 
 	f.IntVar(&installOpts.APINodePort, "node-port", 0, fmt.Sprintf("Host port the API answers on (default %d)", install.DefaultAPINodePort))
 	f.IntVar(&installOpts.UINodePort, "ui-node-port", 0, fmt.Sprintf("Host port the web UI answers on (default %d)", install.DefaultUINodePort))

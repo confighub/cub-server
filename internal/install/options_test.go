@@ -241,6 +241,8 @@ func TestReadPriorKeepsTheOCIURL(t *testing.T) {
 // Installing into an existing cluster asks where the registry is reached, and
 // asks again until the answer is one the server would accept.
 func TestInterviewAsksForTheOCIURLOnAnExistingCluster(t *testing.T) {
+	// A cluster with a default StorageClass, so nothing is asked about one.
+	stubStorageClasses(t, []storageClass{{Name: "standard", Default: true}}, nil)
 	o := Options{
 		Target: TargetContext, KubeContext: "prod", APINodePort: 32180,
 		Database: string(config.DatabaseInternal), NewAdminKey: true, Image: "img:v1",

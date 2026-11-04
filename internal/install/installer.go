@@ -260,6 +260,14 @@ func installerArgs(opts config.Options, s *config.Surface, pkg, workDir string) 
 	if opts.Ingress == config.IngressTraefik {
 		input("host", opts.Host)
 	}
+	// Only when they differ from the package's defaults, so an install that
+	// names neither renders with a package from before these inputs existed.
+	if opts.Database == config.DatabaseInternal {
+		input("storage_class", opts.StorageClass)
+		if opts.StorageSize != config.DefaultStorageSize {
+			input("storage_size", opts.StorageSize)
+		}
+	}
 
 	image := func(name, ref string) {
 		if ref != "" {

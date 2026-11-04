@@ -68,6 +68,9 @@ func Run(ctx context.Context, u UI, o *Options) error {
 	if err := refuseIfAnotherInstance(ctx, kube, o, false); err != nil {
 		return err
 	}
+	if err := refuseDatabaseClaimChange(ctx, kube, o); err != nil {
+		return err
+	}
 
 	if err := applyManifests(ctx, u, o, kube, files, "Installing ConfigHub"); err != nil {
 		return err
@@ -194,6 +197,13 @@ func generate(ctx context.Context, u UI, o *Options) ([]config.File, string, err
 	u.detail("ui image: %s", opts.UIImage)
 	if ociURL := surface.Get(config.OCIURLEnv); ociURL != "" {
 		u.detail("OCI registry advertised at %s (OCI_EXTERNAL_URL)", ociURL)
+	}
+	if opts.Database == config.DatabaseInternal {
+		class := "StorageClass " + opts.StorageClass
+		if opts.StorageClass == "" {
+			class = "the cluster's default StorageClass"
+		}
+		u.detail("database volume: %s from %s", opts.StorageSize, class)
 	}
 
 	return files, keyPath, nil

@@ -168,6 +168,19 @@ if expect_render base bundled-postgres --components default; then
   done
 fi
 
+# The database's volume: unnamed, the cluster's default StorageClass, which an
+# empty storageClassName would refuse; named, that class, at the size given.
+claim() {
+  yq -r ".spec.volumeClaimTemplates[0].spec.$2 // \"<unset>\"" "$(manifest "$1" statefulset-confighub-confighub-postgres.yaml)"
+}
+expect_equal base "the database's StorageClass" "$(claim base storageClassName)" "<unset>"
+expect_equal base "the database's size" "$(claim base resources.requests.storage)" 10Gi
+if expect_render storage-class bundled-postgres --select bundled-postgres \
+  --input storage_class=auto-gp3 --input storage_size=50Gi; then
+  expect_equal storage-class "the database's StorageClass" "$(claim storage-class storageClassName)" auto-gp3
+  expect_equal storage-class "the database's size" "$(claim storage-class resources.requests.storage)" 50Gi
+fi
+
 # A local cluster's install: NodePorts, the addresses they make, and the
 # administrator's key, whose JSON reaches the ConfigMap as given.
 jwk='{"kty":"OKP","crv":"Ed25519","x":"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}'

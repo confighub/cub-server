@@ -87,6 +87,13 @@ type Options struct {
 	// the server to work it out. See config.Options.OCIURL.
 	OCIURL string
 
+	// StorageClass is the StorageClass the bundled database's volume claim
+	// names, and StorageSize the size it asks for. Empty keeps what a previous
+	// run rendered; with none, the cluster's default class and
+	// config.DefaultStorageSize. See config.Options.StorageClass.
+	StorageClass string
+	StorageSize  string
+
 	// Keycloak is set by `cub server keycloak install` and nil otherwise. It is
 	// the second chapter of an install, not a variation on the first: the
 	// server runs perfectly well without it, and keeps its local administrator
@@ -187,6 +194,30 @@ func (o *Options) Defaults() error {
 	case !o.InstallerSet:
 		o.Installer = renderedWithInstaller(o.OutDir)
 	}
+	return o.adoptRecordedStorage()
+}
+
+// adoptRecordedStorage keeps the bundled database's StorageClass and size from
+// the previous render when no flag names them.
+//
+// Chosen once, at install: a re-run, and 'keycloak install', render the
+// StatefulSet again without being told, and a claim template that lost its
+// class would be one the API server refuses to apply, since a StatefulSet's
+// claim templates cannot change.
+func (o *Options) adoptRecordedStorage() error {
+	if o.Database != string(config.DatabaseInternal) || (o.StorageClass != "" && o.StorageSize != "") {
+		return nil
+	}
+	class, size, err := renderedDatabaseClaim(o.OutDir)
+	if err != nil {
+		return err
+	}
+	if o.StorageClass == "" {
+		o.StorageClass = class
+	}
+	if o.StorageSize == "" {
+		o.StorageSize = size
+	}
 	return nil
 }
 
@@ -262,19 +293,21 @@ func (o *Options) Validate() error {
 // describes a deployment. Only the overlap crosses over.
 func (o *Options) deploymentOptions() config.Options {
 	opts := config.Options{
-		Namespace:   o.Namespace,
-		Image:       o.Image,
-		UIImage:     o.UIImage,
-		APIURL:      o.APIURL(),
-		UIURL:       o.UIURL(),
-		OCIURL:      o.OCIURL,
-		Database:    config.DatabaseMode(o.Database),
-		DatabaseURL: o.DatabaseURL,
-		Ingress:     config.IngressNone,
-		APINodePort: o.APINodePort,
-		OCINodePort: o.OCINodePort,
-		UINodePort:  o.UINodePort,
-		Keycloak:    o.Keycloak,
+		Namespace:    o.Namespace,
+		Image:        o.Image,
+		UIImage:      o.UIImage,
+		APIURL:       o.APIURL(),
+		UIURL:        o.UIURL(),
+		OCIURL:       o.OCIURL,
+		Database:     config.DatabaseMode(o.Database),
+		DatabaseURL:  o.DatabaseURL,
+		StorageClass: o.StorageClass,
+		StorageSize:  o.StorageSize,
+		Ingress:      config.IngressNone,
+		APINodePort:  o.APINodePort,
+		OCINodePort:  o.OCINodePort,
+		UINodePort:   o.UINodePort,
+		Keycloak:     o.Keycloak,
 	}
 	opts.Defaults()
 	return opts

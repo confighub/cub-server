@@ -2,6 +2,7 @@ package install
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"strconv"
@@ -120,6 +121,10 @@ func Interview(in io.Reader, out io.Writer, o *Options) error {
 		}
 	}
 
+	if err := askStorageClass(r, out, o); err != nil {
+		return err
+	}
+
 	// Only worth asking when there is something to decide: a key of this name
 	// already exists, so the install either adopts that administrator or mints
 	// another one under a different name.
@@ -164,6 +169,67 @@ func Interview(in io.Reader, out io.Writer, o *Options) error {
 	}
 
 	fmt.Fprintln(out)
+	return nil
+}
+
+// askStorageClass asks which StorageClass the bundled database's volume comes
+// from, when installing into a cluster that has no default one. Anywhere else
+// the default class is the answer, and asking would be a keystroke tax: kind
+// has one, and so does a cluster that names one. Nor on a re-run whose previous
+// render named one, which the install keeps.
+func askStorageClass(r *bufio.Reader, out io.Writer, o *Options) error {
+	if o.Target != TargetContext || o.StorageClass != "" ||
+		(o.Database != "" && o.Database != string(config.DatabaseInternal)) {
+		return nil
+	}
+	outDir := o.OutDir
+	if outDir == "" {
+		outDir, _ = defaultOutDir(o.instanceName())
+	}
+	if recorded, _, _ := renderedDatabaseClaim(outDir); recorded != "" {
+		return nil
+	}
+	classes, err := listStorageClasses(context.Background(), kubeEnv{context: o.KubeContext})
+	if err != nil {
+		// Not fatal: the install itself says what is wrong with the context.
+		fmt.Fprintf(out, "\nCould not list the StorageClasses of %q, so not asking which the database uses.\n", o.KubeContext)
+		return nil
+	}
+	if hasDefaultClass(classes) {
+		return nil
+	}
+
+	fmt.Fprintf(out, "\nThe cluster %q has no default StorageClass, so the bundled database's volume\n", o.KubeContext)
+	fmt.Fprintln(out, "needs one named, or its claim stays Pending and the database never starts.")
+	if len(classes) == 0 {
+		fmt.Fprintln(out, "It has no StorageClasses at all. Ask whoever runs it which to use, or install with")
+		fmt.Fprintln(out, "--database=external --database-url <url> to bring your own database.")
+		for {
+			name, err := ask(r, out, "StorageClass", "")
+			if err != nil {
+				return err
+			}
+			if strings.TrimSpace(name) == "" {
+				return fmt.Errorf("the bundled database needs a StorageClass on %q: pass --storage-class, or --database=external", o.KubeContext)
+			}
+			if err := config.ValidateStorageClass(name); err != nil {
+				fmt.Fprintf(out, "  %v\n", err)
+				continue
+			}
+			o.StorageClass = strings.TrimSpace(name)
+			return nil
+		}
+	}
+
+	options := make([]string, 0, len(classes))
+	for _, c := range classes {
+		options = append(options, fmt.Sprintf("%s (%s)", c.Name, c.Provisioner))
+	}
+	answer, err := choose(r, out, "Which StorageClass should the database's volume come from?", options, 1)
+	if err != nil {
+		return err
+	}
+	o.StorageClass = classes[answer-1].Name
 	return nil
 }
 

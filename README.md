@@ -350,6 +350,26 @@ cub server install --kube-context my-cluster --oci-url https://confighub-oci.exa
 scheme's default when the URL names none. `install -i` asks for it when installing into a cluster
 you already have. A re-run without `--oci-url` keeps the one the instance was installed with. The server reads it from v0.10.4.
 
+### The database's volume
+
+The bundled Postgres keeps its data on a PersistentVolumeClaim that, unless told otherwise, names
+no StorageClass, so the cluster's default class provisions it. kind has one. Many clusters don't
+— EKS Auto Mode ships with none — and there the claim stays `Pending` and the database never
+starts. Name the class the volume comes from, and its size if 10Gi isn't right:
+
+```sh
+cub server install --kube-context my-cluster --storage-class auto-gp3
+cub server install --kube-context my-cluster --storage-class auto-gp3 --storage-size 50Gi --dry-run
+```
+
+`install -i` lists the cluster's StorageClasses and asks for one when it has no default. A re-run
+without the flags keeps the class and size the instance was installed with, and `cub server
+upgrade` changes only the Deployments' images, so it keeps them too. A StatefulSet's claim
+template can't change in place, so an install that would change them on a running database is
+refused before anything is applied, with the commands to delete a database that never started.
+A database you run yourself, such as RDS, needs none of this: `--database=external
+--database-url <url>`.
+
 ## Re-running is safe
 
 Every generated value — the token signing key, the database password, the administrator's public
