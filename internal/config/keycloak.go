@@ -17,9 +17,10 @@ import (
 // It is additive. The local administrator keeps working afterwards -- the server
 // keys that on CONFIGHUB_LOCAL_ADMIN_JWK being set rather than on whether an
 // identity provider exists -- so what this adds is a second way in, not a
-// replacement for the first. That first way is then the break-glass credential,
-// which is worth having precisely because an identity provider is a thing that
-// can break.
+// replacement for the first. The local administrator reaches only the local
+// organization, though, not the one Keycloak's users are in, so it is no way back
+// into that one when the identity provider breaks. A service account with the
+// admin org role in that organization is, because it logs in without Keycloak.
 //
 // # NO PASSWORD AND NO SHARED SECRET REACH THE SERVER
 //
