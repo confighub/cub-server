@@ -114,7 +114,7 @@ func init() {
 	f.StringVar(&installOpts.KubeContext, "kube-context", "", "Kubeconfig context to install into, instead of creating a kind cluster")
 
 	f.StringVar(&installOpts.Namespace, "namespace", "", "Namespace to install into (default "+install.DefaultNamespace+")")
-	f.BoolVar(&installCreateNamespace, "create-namespace", true, "Create the namespace; false deploys into one you created, which install leaves as it is. Implies --installer (default: what a previous run recorded, else true)")
+	f.BoolVar(&installCreateNamespace, "create-namespace", true, "Create the namespace; false deploys into one you created, which install leaves as it is, and implies --installer (default: what a previous run recorded, else true)")
 	f.StringArrayVar(&installNamespaceLabels, "namespace-label", nil, "Label to set on the namespace install creates, as key=value, for clusters whose admission policies require them; repeatable, and \"\" clears them. Implies --installer (default: the ones a previous run recorded)")
 	f.StringArrayVar(&installNamespaceAnnotations, "namespace-annotation", nil, "Annotation to set on the namespace install creates, as key=value; repeatable, and \"\" clears them. Implies --installer (default: the ones a previous run recorded)")
 	f.StringVar(&installOpts.Registry, "registry", "", "Where to pull ConfigHub's images from: ghcr, gcr, or a mirror prefix holding <prefix>/confighub and <prefix>/ui, and <prefix>/packages/confighub for --installer (default ghcr)")

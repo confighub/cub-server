@@ -404,13 +404,18 @@ kubectl create namespace confighub   # or however your cluster's namespaces are 
 cub server install --kube-context my-cluster --create-namespace=false
 ```
 
-The install then never applies the namespace, checks that it exists before deploying anything,
-and `cub server uninstall` deletes what it applied there and leaves the namespace in place.
+The install then never applies the namespace, and checks that it exists before deploying anything,
+`--dry-run` included. `cub server uninstall` deletes what the install applied there and leaves the
+namespace in place. A kind cluster the install would create has no namespace of yours, so
+`--create-namespace=false` is refused unless the cluster already exists.
 
 These flags render with the [installer](#rendering-with-the-installer), so they imply
-`--installer`. The package's Namespace carries its own labels, enforcing the `restricted` Pod
-Security Standard, and the labels and annotations you name are added to it with `cub function
-local`, which needs `cub` on your PATH. Every workload in the package meets `restricted`, and the
+`--installer`; an instance rendered with this plugin's own manifests switches to the installer's,
+and the install says so. The package's Namespace carries its own labels, enforcing the
+`restricted` Pod Security Standard, and the labels and annotations you name are added to it with
+`cub function local`, which needs `cub` on your PATH. One that would replace a value the package
+sets, such as `pod-security.kubernetes.io/enforce`, is refused: create a namespace that needs other
+values yourself, and pass `--create-namespace=false`. Every workload in the package meets `restricted`, and the
 package's validation refuses a render where one doesn't, so a namespace your cluster labels for
 `restricted` doesn't stop the install either. `install -i` asks for these when installing into a
 cluster you already have.

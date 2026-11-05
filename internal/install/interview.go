@@ -188,35 +188,54 @@ func interview(in io.Reader, out io.Writer, o *Options, connect func(kubeContext
 
 // askNamespace asks whether the install creates its namespace and, if it does,
 // for the labels and annotations the cluster's admission policies require. Only
-// a cluster of the operator's own has such policies. Answering with the
-// defaults leaves the settings unset, so a re-run keeps what was recorded.
+// a cluster of the operator's own has such policies.
+//
+// The interview runs before Defaults, so it reads what a previous install of
+// this instance recorded itself, and offers that as the default: answering
+// with the defaults leaves the settings unset, and Defaults then keeps the
+// recorded ones.
 func askNamespace(r *bufio.Reader, out io.Writer, o *Options) error {
+	recorded, err := readNamespaceSettings(interviewOutDir(o))
+	if err != nil {
+		return err
+	}
 	if o.CreateNamespace == nil && !o.NamespaceLabelsSet && !o.NamespaceAnnotationsSet {
 		namespace := o.Namespace
 		if namespace == "" {
 			namespace = DefaultNamespace
 		}
-		answer, err := choose(r, out,
-			fmt.Sprintf("The namespace %q?", namespace),
-			[]string{
-				"create it (or keep what a previous install chose)",
-				"it exists already, created by whoever runs the cluster; leave it as it is",
-			}, 1)
+		create := "create it"
+		exists := "it exists already, created by whoever runs the cluster; leave it as it is"
+		options, def := []string{create, exists}, 1
+		if !recorded.creates() {
+			def = 2
+			options[1] += " (as the previous install chose)"
+		}
+		answer, err := choose(r, out, fmt.Sprintf("The namespace %q?", namespace), options, def)
 		if err != nil {
 			return err
 		}
-		if answer == 2 {
-			create := false
-			o.CreateNamespace = &create
-			return nil
+		// Only a change from the record is set; the record's own answer is left
+		// for Defaults to adopt.
+		switch {
+		case answer == 2 && recorded.creates():
+			no := false
+			o.CreateNamespace = &no
+		case answer == 1 && !recorded.creates():
+			yes := true
+			o.CreateNamespace = &yes
 		}
 	}
-	if !o.createsNamespace() {
+	creates := o.createsNamespace()
+	if o.CreateNamespace == nil {
+		creates = recorded.creates()
+	}
+	if !creates {
 		return nil
 	}
 	if !o.NamespaceLabelsSet {
 		fmt.Fprintln(out, "\nDo the cluster's admission policies require labels on a namespace? Enter each as key=value, and a blank line to finish.")
-		labels, err := askKeyValues(r, out, "Namespace label", validateLabelValue)
+		labels, err := askKeyValues(r, out, "Namespace label", recorded.Labels, validateLabelValue)
 		if err != nil {
 			return err
 		}
@@ -225,7 +244,7 @@ func askNamespace(r *bufio.Reader, out io.Writer, o *Options) error {
 		}
 	}
 	if !o.NamespaceAnnotationsSet {
-		annotations, err := askKeyValues(r, out, "Namespace annotation", nil)
+		annotations, err := askKeyValues(r, out, "Namespace annotation", recorded.Annotations, nil)
 		if err != nil {
 			return err
 		}
@@ -236,8 +255,30 @@ func askNamespace(r *bufio.Reader, out io.Writer, o *Options) error {
 	return nil
 }
 
-// askKeyValues asks for key=value pairs until a blank answer.
-func askKeyValues(r *bufio.Reader, out io.Writer, prompt string, validateValue func(string) error) (map[string]string, error) {
+// interviewOutDir is the out-dir Defaults will choose for o, so the interview
+// can read the instance's record before Defaults runs.
+func interviewOutDir(o *Options) string {
+	if o.OutDir != "" {
+		return o.OutDir
+	}
+	probe := Options{Target: o.Target, ClusterName: o.ClusterName, KubeContext: o.KubeContext}
+	dir, err := defaultOutDir(probe.instanceName())
+	if err != nil {
+		return ""
+	}
+	return dir
+}
+
+// askKeyValues asks for key=value pairs until a blank answer. A blank first
+// answer keeps the recorded ones, which it lists.
+func askKeyValues(r *bufio.Reader, out io.Writer, prompt string, recorded map[string]string, validateValue func(string) error) (map[string]string, error) {
+	if len(recorded) > 0 {
+		pairs := make([]string, 0, len(recorded))
+		for _, k := range sortedKeys(recorded) {
+			pairs = append(pairs, k+"="+recorded[k])
+		}
+		fmt.Fprintf(out, "A blank first answer keeps the previous install's: %s\n", strings.Join(pairs, ", "))
+	}
 	got := map[string]string{}
 	for {
 		answer, err := ask(r, out, prompt+" (blank to finish)", "")

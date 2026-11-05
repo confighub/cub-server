@@ -104,13 +104,14 @@ type Options struct {
 
 	// CreateNamespace is false to deploy into a namespace the operator created,
 	// which install then leaves as it is. Nil keeps what a previous run
-	// recorded, and is otherwise true. See namespace.go.
+	// recorded, and is otherwise true. False implies Installer. See
+	// namespace.go.
 	CreateNamespace *bool
 
 	// NamespaceLabels and NamespaceAnnotations are set on the Namespace install
 	// creates, for clusters whose admission policies require them. Each is kept
 	// from a previous run unless its Set field says the flag was given.
-	// Setting any of these implies Installer.
+	// A label or annotation implies Installer.
 	NamespaceLabels         map[string]string
 	NamespaceLabelsSet      bool
 	NamespaceAnnotations    map[string]string

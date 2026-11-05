@@ -1,11 +1,9 @@
 package install
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -240,16 +238,11 @@ var cubFunctionLocal = func(ctx context.Context, manifest []byte, function strin
 		return nil, fmt.Errorf("setting the namespace's labels and annotations needs cub on your PATH")
 	}
 	argv := append([]string{"function", "local", "--data-only", "--toolchain", "Kubernetes/YAML", "--", "-", function}, args...)
-	cmd := exec.CommandContext(ctx, cub, argv...)
-	cmd.Env = cubEnv()
-	cmd.Stdin = bytes.NewReader(manifest)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("cub function local %s: %w\n%s", function, err, strings.TrimSpace(stderr.String()))
+	out, err := runCubIn(ctx, manifest, cub, argv...)
+	if err != nil {
+		return nil, fmt.Errorf("%s on the Namespace: %w", function, err)
 	}
-	return stdout.Bytes(), nil
+	return out, nil
 }
 
 // applyNamespaceSettings applies o's namespace settings to an installer render:
@@ -276,6 +269,9 @@ func applyNamespaceSettings(ctx context.Context, o *Options, files []config.File
 		if !o.createsNamespace() {
 			continue
 		}
+		if err := refuseReplacingPackageMetadata(o, doc); err != nil {
+			return nil, err
+		}
 		content := f.Content
 		var err error
 		for _, key := range sortedKeys(o.NamespaceLabels) {
@@ -297,6 +293,42 @@ func applyNamespaceSettings(ctx context.Context, o *Options, files []config.File
 	return out, nil
 }
 
+// refuseReplacingPackageMetadata refuses a label or annotation that would
+// replace one the package's Namespace sets with a different value. The
+// package's labels enforce the restricted Pod Security Standard, which its
+// validation checked every workload against, and its sync-wave annotation
+// orders the apply; quietly replacing either would leave the render no longer
+// the one that was validated. A namespace that needs different values of these
+// is one to create yourself, with --create-namespace=false.
+func refuseReplacingPackageMetadata(o *Options, namespace []byte) error {
+	var ns struct {
+		Metadata struct {
+			Labels      map[string]string `yaml:"labels"`
+			Annotations map[string]string `yaml:"annotations"`
+		} `yaml:"metadata"`
+	}
+	if err := yaml.Unmarshal(namespace, &ns); err != nil {
+		return fmt.Errorf("parsing the rendered Namespace %s: %w", o.Namespace, err)
+	}
+	var conflicts []string
+	check := func(flag string, ours, theirs map[string]string) {
+		for _, key := range sortedKeys(ours) {
+			if pkg, ok := theirs[key]; ok && pkg != ours[key] {
+				conflicts = append(conflicts, fmt.Sprintf("%s %s=%s (the package sets %q)", flag, key, ours[key], pkg))
+			}
+		}
+	}
+	check("--namespace-label", o.NamespaceLabels, ns.Metadata.Labels)
+	check("--namespace-annotation", o.NamespaceAnnotations, ns.Metadata.Annotations)
+	if len(conflicts) == 0 {
+		return nil
+	}
+	return fmt.Errorf("these would replace what the installer package sets on the Namespace %s:\n    %s\n"+
+		"    The package's labels enforce the restricted Pod Security Standard its workloads are validated against.\n"+
+		"    For a namespace that needs other values, create it yourself and pass --create-namespace=false",
+		o.Namespace, strings.Join(conflicts, "\n    "))
+}
+
 // onlyObject reports whether content holds a single Kubernetes object.
 func onlyObject(content []byte) bool {
 	n := 0
@@ -311,18 +343,55 @@ func onlyObject(content []byte) bool {
 	return n == 1
 }
 
+// rendererSwitch says, for a message, that an instance rendered with this
+// plugin's own manifests is about to be re-rendered with the installer.
+func rendererSwitch(outDir string) string {
+	if renderedWithInstaller(outDir) {
+		return ""
+	}
+	if paths, _ := filepath.Glob(filepath.Join(outDir, config.ConfigDir, "*.yaml")); len(paths) == 0 {
+		return ""
+	}
+	return "; this instance was rendered with this plugin's own manifests, and is switching to the installer's"
+}
+
+// runKubectl runs kubectl for the commands in this file, so tests can see what
+// they would run.
+var runKubectl = func(ctx context.Context, args ...string) (string, error) {
+	return run(ctx, toolKubectl.name, args...)
+}
+
+// refuseNamespaceInNewCluster refuses --create-namespace=false for a kind
+// cluster this install would create: a new cluster has no namespace of the
+// operator's, so the install could only fail after creating it.
+func refuseNamespaceInNewCluster(o *Options) error {
+	if o.createsNamespace() || o.Target != TargetKind {
+		return nil
+	}
+	exists, err := kindClusterExists(o.ClusterName)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("--create-namespace=false deploys into a namespace you created, and the kind cluster %q does not exist yet, so it has none.\n"+
+			"    Drop --create-namespace=false, or create the cluster and the namespace first", o.ClusterName)
+	}
+	return nil
+}
+
 // checkNamespaceExists refuses to deploy into a namespace the install does not
 // create when it is not there. A kubeconfig that cannot read Namespaces, as
 // one whose RBAC stops at the namespace, is warned about rather than refused:
-// the apply says soon enough if the namespace is missing.
+// kubectl apply fails on a missing namespace, so the install still stops.
 func checkNamespaceExists(ctx context.Context, u UI, o *Options, kube kubeEnv) error {
 	if o.createsNamespace() {
 		return nil
 	}
-	u.step("Checking the namespace %s", o.Namespace)
-	out, err := run(ctx, toolKubectl.name, kube.args("get", "namespace", o.Namespace, "-o", "name", "--ignore-not-found")...)
+	u.detail("namespace %s: checking that it exists, since install does not create it", o.Namespace)
+	out, err := runKubectl(ctx, kube.args("get", "namespace", o.Namespace, "-o", "name", "--ignore-not-found")...)
 	if err != nil {
-		if strings.Contains(err.Error(), "Forbidden") || strings.Contains(err.Error(), "forbidden") {
+		// kubectl reports an RBAC refusal as "Error from server (Forbidden)".
+		if strings.Contains(err.Error(), "(Forbidden)") {
 			u.warn("could not read the namespace %s from here, so not checking that it exists", o.Namespace)
 			return nil
 		}
@@ -335,7 +404,7 @@ func checkNamespaceExists(ctx context.Context, u UI, o *Options, kube kubeEnv) e
 				"    Create it with whatever labels and policies your cluster requires, then re-run",
 			o.Namespace, kube.describe(o))
 	}
-	u.detail("it exists; install leaves it as it is")
+	u.detail("namespace %s: it exists; install leaves it as it is", o.Namespace)
 	return nil
 }
 
@@ -366,12 +435,12 @@ func uninstallFromNamespace(ctx context.Context, u UI, o *Options, kube kubeEnv)
 	for _, p := range paths {
 		args = append(args, "-f", p)
 	}
-	if _, err := run(ctx, toolKubectl.name, kube.args(args...)...); err != nil {
+	if _, err := runKubectl(ctx, kube.args(args...)...); err != nil {
 		return err
 	}
 	// Deleting the StatefulSet leaves its claim, and the database's data.
 	if o.Database == string(config.DatabaseInternal) {
-		if _, err := run(ctx, toolKubectl.name, kube.args("delete", "pvc", databaseClaim, "-n", o.Namespace, "--ignore-not-found", "--wait=false")...); err != nil {
+		if _, err := runKubectl(ctx, kube.args("delete", "pvc", databaseClaim, "-n", o.Namespace, "--ignore-not-found", "--wait=false")...); err != nil {
 			return err
 		}
 	}
