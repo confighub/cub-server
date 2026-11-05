@@ -25,9 +25,6 @@ import (
 // instance's Secret over another's replaces its database password and its
 // token-signing key.
 
-// secretEnvName is the Secret the server reads its generated values from.
-const secretEnvName = "confighub-secret-env"
-
 // recordedClusterName is the kind cluster an install into outDir created, or ""
 // when it created none (an install into a kubeconfig context, or no install).
 func recordedClusterName(outDir string) (string, error) {
@@ -143,6 +140,7 @@ func refuseIfAnotherInstance(ctx context.Context, kube kubeEnv, o *Options, requ
 		return nil // nothing generated yet, so nothing to be overwritten with
 	}
 
+	secretEnvName := o.secretName()
 	out, err := run(ctx, toolKubectl.name, kube.args(
 		"get", "secret", secretEnvName, "-n", o.Namespace,
 		"-o", "json", "--ignore-not-found",
@@ -157,6 +155,11 @@ func refuseIfAnotherInstance(ctx context.Context, kube kubeEnv, o *Options, requ
 					"    %s describes one, but it is not in this cluster",
 				o.Namespace, kube.describe(o), secretEnvName, o.OutDir)
 		}
+		return nil
+	}
+	// The operator's Secret holds the operator's values, which need not be the
+	// ones install generated: checkExistingSecret checks the ones that must.
+	if o.ExistingSecret != "" {
 		return nil
 	}
 
@@ -196,7 +199,7 @@ func differingKeys(recorded map[string]string, liveData map[string]string) ([]st
 		}
 		got, err := base64.StdEncoding.DecodeString(encoded)
 		if err != nil {
-			return nil, fmt.Errorf("the Secret %s has a key %s that is not valid base64: %w", secretEnvName, key, err)
+			return nil, fmt.Errorf("the Secret %s has a key %s that is not valid base64: %w", config.DefaultSecretName, key, err)
 		}
 		if string(got) != want {
 			differ = append(differ, key)

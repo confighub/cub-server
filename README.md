@@ -383,6 +383,34 @@ refused before anything is applied, with the commands to delete a database that 
 A database you run yourself, such as RDS, needs none of this: `--database=external
 --database-url <url>`.
 
+## Secrets from your secret store
+
+By default the install applies the server's Secret, `confighub-secret-env`, itself. Where
+credentials have to stay in a secret store (AWS Secrets Manager, Vault, GCP Secret Manager) and
+reach the cluster through External Secrets or the Secrets Store CSI driver's `secretObjects`,
+name the Secret those keep in sync instead:
+
+```sh
+cub server install --kube-context my-cluster --existing-secret confighub-from-vault
+```
+
+The server and the bundled database then read that Secret, and the install never applies one.
+It still generates the values once, as it always does, and writes them to
+`secrets/confighub-secret-values.json` as a flat JSON object, ready for your store
+(`aws secretsmanager create-secret --secret-string file://...`, then External Secrets' `dataFrom`
+`extract`). A re-run reuses them. With `--database=external`, `--database-url` is optional:
+`DATABASE_URL` can be in your Secret instead.
+
+Before it deploys anything, the install checks that the Secret is in the namespace and has every
+key the server needs, and names any that are missing. Create the namespace first, so your
+operator has somewhere to write the Secret. A re-run keeps `--existing-secret` without being
+told; `--existing-secret=""` goes back to the Secret the install applies. With `--installer` the
+name has to be `confighub-secret-env`, which the package's workloads read.
+
+`cub server keycloak install` adds the Keycloak client key, `KEYCLOAK_CLIENT_PRIVATE_KEY_JWK`, to
+the values file, and checks for it in your Secret before it applies anything. It has to be the
+value the install generated, because Keycloak holds its public half.
+
 ## Re-running is safe
 
 Every generated value — the token signing key, the database password, the administrator's public

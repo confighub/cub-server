@@ -2,6 +2,7 @@ package config
 
 import (
 	"embed"
+	"encoding/json"
 	"fmt"
 	"path"
 
@@ -88,12 +89,22 @@ func secretEdits(docs gaby.Container, opts Options, syncWave string) []edit {
 	return edits
 }
 
+// ExistingSecretAnnotation marks a rendered Secret as the operator's: a record
+// of the values to load into their secret store, which an install never
+// applies. It is how a re-run knows the instance reads a Secret it does not
+// own, and which.
+const ExistingSecretAnnotation = "confighub.com/existing-secret"
+
 func renderSecret(opts Options, entries []entry, syncWave string) ([]byte, error) {
 	docs, err := load("secret.yaml")
 	if err != nil {
 		return nil, err
 	}
-	if err := apply(docs, secretEdits(docs, opts, syncWave)); err != nil {
+	edits := append(secretEdits(docs, opts, syncWave), edit{path: "metadata.name", value: opts.SecretName()})
+	if opts.ExistingSecret != "" {
+		edits = append(edits, edit{path: "metadata.annotations." + segment(ExistingSecretAnnotation), value: "true", insert: true})
+	}
+	if err := apply(docs, edits); err != nil {
 		return nil, err
 	}
 	if err := fillMap(docs[0], "stringData", entries); err != nil {
@@ -126,6 +137,7 @@ func renderDatabase(opts Options) ([]byte, error) {
 	edits := namespaceEdits(docs, opts.Namespace)
 	edits = append(edits,
 		edit{doc: 0, path: "spec.template.spec.containers.0.image", value: opts.DatabaseImage},
+		edit{doc: 0, path: "spec.template.spec.containers.0.env.2.valueFrom.secretKeyRef.name", value: opts.SecretName()},
 		edit{doc: 0, path: "spec.volumeClaimTemplates.0.spec.resources.requests.storage", value: opts.StorageSize},
 	)
 	// Only when one is named. Unset is the cluster's default class; an empty
@@ -149,11 +161,30 @@ func renderDeployment(opts Options, configHash string) ([]byte, error) {
 		edit{doc: 0, path: "spec.template.metadata.annotations." + segment(configHashAnnotation), value: configHash},
 		edit{doc: 0, path: "spec.template.spec.initContainers.0.image", value: opts.Image},
 		edit{doc: 0, path: "spec.template.spec.containers.0.image", value: opts.Image},
+		edit{doc: 0, path: "spec.template.spec.initContainers.0.envFrom.1.secretRef.name", value: opts.SecretName()},
+		edit{doc: 0, path: "spec.template.spec.containers.0.envFrom.1.secretRef.name", value: opts.SecretName()},
 	)
 	if err := apply(docs, edits); err != nil {
 		return nil, err
 	}
 	return docs.Bytes(), nil
+}
+
+// renderSecretValues is the server's Secret as a flat JSON object of its
+// values, for an operator who provides that Secret: the form a secret store
+// takes them in, such as `aws secretsmanager create-secret --secret-string
+// file://...`, and that External Secrets' dataFrom extract or a
+// SecretProviderClass's jmesPath reads back out key by key.
+func renderSecretValues(entries []entry) ([]byte, error) {
+	values := make(map[string]string, len(entries))
+	for _, e := range entries {
+		values[e.Key] = e.Value
+	}
+	out, err := json.MarshalIndent(values, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(out, '\n'), nil
 }
 
 // renderUI produces the UI's ConfigMap and Deployment. The Deployment carries a
@@ -283,6 +314,12 @@ func Render(s *Surface, opts Options) ([]File, error) {
 		path: SecretsDir + "/" + SecretFile, sensitive: true,
 		render: func() ([]byte, error) { return renderSecret(opts, secret, "") },
 	})
+	if opts.ExistingSecret != "" {
+		steps = append(steps, step{
+			path: SecretsDir + "/" + SecretValuesFile, sensitive: true,
+			render: func() ([]byte, error) { return renderSecretValues(secret) },
+		})
+	}
 
 	files := make([]File, 0, len(steps))
 	for _, st := range steps {
@@ -295,10 +332,13 @@ func Render(s *Surface, opts Options) ([]File, error) {
 	return files, nil
 }
 
-// The files the Secrets are rendered to, under SecretsDir.
+// The files the Secrets are rendered to, under SecretsDir. SecretValuesFile is
+// rendered only with Options.ExistingSecret: the server's values, for the
+// operator's secret store. See renderSecretValues.
 const (
 	SecretFile         = "confighub-secret.yaml"
 	KeycloakSecretFile = "confighub-keycloak-secret.yaml"
+	SecretValuesFile   = "confighub-secret-values.json"
 )
 
 // RenderSecrets produces only the Secrets: the server's and, with Keycloak,
@@ -311,11 +351,19 @@ func RenderSecrets(s *Surface, opts Options, syncWave string) ([]File, error) {
 	if s == nil {
 		return nil, fmt.Errorf("no surface to render")
 	}
-	content, err := renderSecret(opts, entries(s.SecretVars()), syncWave)
+	secret := entries(s.SecretVars())
+	content, err := renderSecret(opts, secret, syncWave)
 	if err != nil {
 		return nil, fmt.Errorf("rendering %s: %w", SecretFile, err)
 	}
 	files := []File{{Path: SecretsDir + "/" + SecretFile, Sensitive: true, Content: content}}
+	if opts.ExistingSecret != "" {
+		values, err := renderSecretValues(secret)
+		if err != nil {
+			return nil, fmt.Errorf("rendering %s: %w", SecretValuesFile, err)
+		}
+		files = append(files, File{Path: SecretsDir + "/" + SecretValuesFile, Sensitive: true, Content: values})
+	}
 	if opts.Keycloak != nil {
 		content, err := renderKeycloakSecret(opts, entries(s.KeycloakSecretVars()), syncWave)
 		if err != nil {

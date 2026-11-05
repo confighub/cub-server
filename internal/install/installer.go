@@ -420,6 +420,10 @@ func writeRendered(outDir string, files []config.File) error {
 			return err
 		}
 	}
+	// The values file too, which only a render with --existing-secret writes.
+	if err := os.Remove(filepath.Join(outDir, config.SecretsDir, config.SecretValuesFile)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
 	for _, f := range files {
 		path := filepath.Join(outDir, f.Path)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

@@ -41,6 +41,7 @@ Examples:
   cub server install --installer               render them with the installer package
   cub server install --oci-url <url>           advertise the OCI registry at <url>
   cub server install --storage-class <name>    put the database's volume on <name>
+  cub server install --existing-secret <name>  read secrets from a Secret you provide
 
 With --installer, the manifests are rendered by ConfigHub's installer, a cub
 plugin (cub plugin install confighub/installer; 0.3.4 or later), from
@@ -55,6 +56,7 @@ renderer it was installed with; pass --installer=false to go back.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ui := install.UI{Out: os.Stdout}
 		installOpts.InstallerSet = cmd.Flags().Changed("installer")
+		installOpts.ExistingSecretSet = cmd.Flags().Changed("existing-secret")
 		if installInteractive {
 			if err := install.Interview(os.Stdin, os.Stdout, &installOpts); err != nil {
 				return err
@@ -89,6 +91,7 @@ func init() {
 	f.StringVar(&installOpts.Database, "database", "", "internal (bundled Postgres) or external (default internal)")
 	f.StringVar(&installOpts.DatabaseURL, "database-url", "", "Connection string, with --database=external")
 	f.StringVar(&installOpts.StorageClass, "storage-class", "", "StorageClass the bundled database's volume claim names; needed on a cluster with no default StorageClass (default: the one a previous run recorded, else the cluster's default)")
+	f.StringVar(&installOpts.ExistingSecret, "existing-secret", "", "Secret the server reads its secrets from, which you provide (with External Secrets or the Secrets Store CSI driver) and install never applies; the values install generates are written to the out-dir for your secret store (default: the one a previous run recorded, else install applies "+config.DefaultSecretName+" itself)")
 	f.StringVar(&installOpts.StorageSize, "storage-size", "", "Size of the bundled database's volume, such as 20Gi (default: the one a previous run recorded, else "+config.DefaultStorageSize+")")
 
 	f.IntVar(&installOpts.APINodePort, "node-port", 0, fmt.Sprintf("Host port the API answers on (default %d)", install.DefaultAPINodePort))

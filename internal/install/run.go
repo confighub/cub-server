@@ -56,6 +56,7 @@ func Run(ctx context.Context, u UI, o *Options) error {
 			"",
 			"Re-run without --dry-run to install this exact configuration.",
 		)
+		reportExistingSecret(u, o)
 		return nil
 	}
 
@@ -69,6 +70,9 @@ func Run(ctx context.Context, u UI, o *Options) error {
 		return err
 	}
 	if err := refuseDatabaseClaimChange(ctx, kube, o); err != nil {
+		return err
+	}
+	if err := checkExistingSecret(ctx, u, o, kube); err != nil {
 		return err
 	}
 
@@ -201,6 +205,9 @@ func generate(ctx context.Context, u UI, o *Options) ([]config.File, string, err
 	u.detail("ui image: %s", opts.UIImage)
 	if ociURL := surface.Get(config.OCIURLEnv); ociURL != "" {
 		u.detail("OCI registry advertised at %s (OCI_EXTERNAL_URL)", ociURL)
+	}
+	if o.ExistingSecret != "" {
+		u.detail("secrets: read from the Secret %s, which you provide; install does not apply it", o.ExistingSecret)
 	}
 	if opts.Database == config.DatabaseInternal {
 		class := "StorageClass " + opts.StorageClass
@@ -422,6 +429,7 @@ func provisionCluster(ctx context.Context, u UI, o *Options) (kubeEnv, error) {
 func applyManifests(ctx context.Context, u UI, o *Options, kube kubeEnv, files []config.File, step string) error {
 	u.step("%s", step)
 
+	files = appliedFiles(o, files)
 	paths := make([]string, 0, len(files))
 	for _, f := range files {
 		paths = append(paths, filepath.Join(o.OutDir, f.Path))
@@ -525,5 +533,27 @@ func reportSuccess(u UI, o *Options, keyPath string, authenticated bool) error {
 	u.section("The Secret is not committable:",
 		filepath.Join(o.OutDir, config.SecretsDir),
 	)
+	reportExistingSecret(u, o)
 	return nil
+}
+
+// reportExistingSecret says where the values for the operator's Secret are, and
+// that keeping them there is the operator's to do.
+func reportExistingSecret(u UI, o *Options) {
+	if o.ExistingSecret == "" {
+		return
+	}
+	lines := []string{
+		"Install generated its values once, and reuses them on every re-run:",
+		"",
+		"  " + filepath.Join(o.OutDir, config.SecretsDir, config.SecretValuesFile),
+		"",
+		"Load them into your secret store and sync them to Secret " + o.ExistingSecret,
+		"in namespace " + o.Namespace + ". Keep " + config.SigningKeyEnv + " as it is:",
+		"a new one logs every session out.",
+	}
+	if recorded, _ := readStringData(filepath.Join(o.OutDir, config.SecretsDir, config.SecretFile)); recorded != nil && recorded["DATABASE_URL"] == "" {
+		lines = append(lines, "", "Add DATABASE_URL, the external database's connection string, yourself.")
+	}
+	u.section("The server reads the Secret "+o.ExistingSecret+", which you provide.", lines...)
 }

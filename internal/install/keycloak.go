@@ -96,6 +96,13 @@ func RunKeycloak(ctx context.Context, u UI, o *Options) error {
 	// crash-looping pod can time out before it ever gets there.
 	keycloakFiles, serverFiles := splitAtServer(files)
 
+	// Before anything is applied: the server's half needs the Keycloak client
+	// key in the operator's Secret, and finding it missing after Keycloak is
+	// up would leave the instance half-changed.
+	if err := checkExistingSecret(ctx, u, o, kube); err != nil {
+		return err
+	}
+
 	if err := applyManifests(ctx, u, o, kube, keycloakFiles, "Installing Keycloak"); err != nil {
 		return err
 	}

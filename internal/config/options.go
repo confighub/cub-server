@@ -25,9 +25,9 @@ func ValidateOCIURL(raw string) error {
 	return nil
 }
 
-// storageClassName is what Kubernetes accepts as a StorageClass's name: a DNS
-// subdomain.
-var storageClassName = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
+// dnsSubdomain is what Kubernetes accepts as the name of most objects, a
+// StorageClass's and a Secret's among them.
+var dnsSubdomain = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
 
 // ValidateStorageClass accepts empty, which leaves the claim to the cluster's
 // default StorageClass, or a name Kubernetes would accept for one. Whether the
@@ -37,7 +37,7 @@ func ValidateStorageClass(name string) error {
 	if name == "" {
 		return nil
 	}
-	if len(name) > 253 || !storageClassName.MatchString(name) {
+	if len(name) > 253 || !dnsSubdomain.MatchString(name) {
 		return fmt.Errorf("--storage-class %q is not a StorageClass name: lower-case letters, digits, '-' and '.'", name)
 	}
 	return nil
@@ -197,10 +197,44 @@ type Options struct {
 	// UINodePort does the same for the web UI. Zero leaves it ClusterIP.
 	UINodePort int
 
+	// ExistingSecret names a Secret the operator provides, which the server
+	// and the bundled database read instead of the one this package renders:
+	// one that External Secrets, or the Secrets Store CSI driver's
+	// secretObjects, keeps in step with a secret store. The workloads name it,
+	// and the values this package generates are rendered only for the
+	// operator to load into that store, never to be applied. Empty is the
+	// rendered Secret, DefaultSecretName.
+	ExistingSecret string
+
 	// Keycloak is the bundled identity provider, or nil for an instance whose
 	// only identity is the bootstrap administrator's key. Nil is the first
 	// install; `cub server keycloak install` is what sets it. See keycloak.go.
 	Keycloak *Keycloak
+}
+
+// DefaultSecretName is the Secret the server reads its secrets from when the
+// operator does not provide one. ConfigHub's installer package names it too.
+const DefaultSecretName = "confighub-secret-env"
+
+// SecretName is the Secret the workloads read: the operator's, or the one this
+// package renders.
+func (o *Options) SecretName() string {
+	if o.ExistingSecret != "" {
+		return o.ExistingSecret
+	}
+	return DefaultSecretName
+}
+
+// ValidateSecretName accepts empty, which is the rendered Secret, or a name
+// Kubernetes would accept for one.
+func ValidateSecretName(name string) error {
+	if name == "" {
+		return nil
+	}
+	if len(name) > 253 || !dnsSubdomain.MatchString(name) {
+		return fmt.Errorf("--existing-secret %q is not a Secret name: lower-case letters, digits, '-' and '.'", name)
+	}
+	return nil
 }
 
 // Defaults fills in what the caller did not specify.
@@ -236,8 +270,13 @@ func (o *Options) Defaults() {
 // the terminal the operator is already looking at, and a mistake caught later is
 // a pod in CrashLoopBackOff.
 func (o *Options) Validate() error {
-	if o.Database == DatabaseExternal && o.DatabaseURL == "" {
-		return fmt.Errorf("an external database needs its URL: pass --database-url")
+	// With a Secret the operator provides, DATABASE_URL can be in it rather
+	// than on the command line, where it would be written to disk.
+	if o.Database == DatabaseExternal && o.DatabaseURL == "" && o.ExistingSecret == "" {
+		return fmt.Errorf("an external database needs its URL: pass --database-url, or put DATABASE_URL in the Secret --existing-secret names")
+	}
+	if err := ValidateSecretName(o.ExistingSecret); err != nil {
+		return err
 	}
 	if o.Database == DatabaseInternal && o.DatabaseURL != "" {
 		return fmt.Errorf("--database-url applies to an external database; pass --database=external to use it")
