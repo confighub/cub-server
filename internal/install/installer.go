@@ -350,6 +350,18 @@ func renderWithInstaller(ctx context.Context, u UI, o *Options, opts config.Opti
 		return nil, fmt.Errorf("installer setup rendered nothing into %s", filepath.Join(work, "out", "manifests"))
 	}
 	u.detail("rendered %d manifests from %s with installer %s", len(files), pkg, version)
+
+	files, err = applyNamespaceSettings(ctx, o, files)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case !o.createsNamespace():
+		u.detail("namespace %s: yours, so not rendered or changed", o.Namespace)
+	case o.customizesNamespace():
+		u.detail("namespace %s: %d labels and %d annotations of yours, set with cub function local",
+			o.Namespace, len(o.NamespaceLabels), len(o.NamespaceAnnotations))
+	}
 	return files, nil
 }
 

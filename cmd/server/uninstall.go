@@ -19,7 +19,9 @@ var uninstallCmd = &cobra.Command{
 
 For a kind install this deletes the cluster, which takes everything in it
 including the database and its data. For an install into an existing cluster it
-deletes the namespace and leaves the cluster alone.
+deletes the namespace and leaves the cluster alone; if the namespace was yours
+(install --create-namespace=false), it deletes what install applied there and
+leaves the namespace.
 
 The generated configuration is deleted too, unless --keep-config. It holds the
 signing key and the database password, so keeping it is what makes a later

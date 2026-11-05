@@ -246,6 +246,7 @@ func TestInterviewAsksForTheOCIURLOnAnExistingCluster(t *testing.T) {
 	o := Options{
 		Target: TargetContext, KubeContext: "prod", APINodePort: 32180,
 		Database: string(config.DatabaseInternal), NewAdminKey: true, Image: "img:v1",
+		NamespaceLabelsSet: true, NamespaceAnnotationsSet: true,
 	}
 	var out strings.Builder
 	if err := interview(strings.NewReader("oci.example.com\nhttps://confighub-oci.example.com\n"), &out, &o, cluster.connect); err != nil {
@@ -262,6 +263,7 @@ func TestInterviewAsksForTheOCIURLOnAnExistingCluster(t *testing.T) {
 	blank := Options{
 		Target: TargetContext, KubeContext: "prod", APINodePort: 32180,
 		Database: string(config.DatabaseInternal), NewAdminKey: true, Image: "img:v1",
+		NamespaceLabelsSet: true, NamespaceAnnotationsSet: true,
 	}
 	if err := interview(strings.NewReader("\n"), io.Discard, &blank, cluster.connect); err != nil {
 		t.Fatal(err)

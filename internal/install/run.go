@@ -72,6 +72,9 @@ func Run(ctx context.Context, u UI, o *Options) error {
 	if err := refuseDatabaseClaimChange(ctx, kube, o); err != nil {
 		return err
 	}
+	if err := checkNamespaceExists(ctx, u, o, kube); err != nil {
+		return err
+	}
 	if err := checkExistingSecret(ctx, u, o, kube); err != nil {
 		return err
 	}
@@ -125,6 +128,11 @@ func preflight(ctx context.Context, u UI, o *Options) error {
 			return err
 		}
 		u.detail("installer: %s", version)
+	}
+	if len(o.NamespaceLabels) > 0 || len(o.NamespaceAnnotations) > 0 {
+		if _, err := cubBinary(); err != nil {
+			return fmt.Errorf("setting the namespace's labels and annotations runs cub function local, and cub is not on your PATH")
+		}
 	}
 	return nil
 }
@@ -198,6 +206,9 @@ func generate(ctx context.Context, u UI, o *Options) ([]config.File, string, err
 		return nil, "", err
 	}
 	if err := writeRendered(o.OutDir, files); err != nil {
+		return nil, "", err
+	}
+	if err := writeNamespaceSettings(o); err != nil {
 		return nil, "", err
 	}
 	u.detail("wrote %d files to %s", len(files), o.OutDir)

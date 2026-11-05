@@ -97,6 +97,9 @@ func interview(in io.Reader, out io.Writer, o *Options, connect func(kubeContext
 				break
 			}
 		}
+		if err := askNamespace(r, out, o); err != nil {
+			return err
+		}
 	}
 
 	if o.APINodePort == 0 {
@@ -181,6 +184,79 @@ func interview(in io.Reader, out io.Writer, o *Options, connect func(kubeContext
 
 	fmt.Fprintln(out)
 	return nil
+}
+
+// askNamespace asks whether the install creates its namespace and, if it does,
+// for the labels and annotations the cluster's admission policies require. Only
+// a cluster of the operator's own has such policies. Answering with the
+// defaults leaves the settings unset, so a re-run keeps what was recorded.
+func askNamespace(r *bufio.Reader, out io.Writer, o *Options) error {
+	if o.CreateNamespace == nil && !o.NamespaceLabelsSet && !o.NamespaceAnnotationsSet {
+		namespace := o.Namespace
+		if namespace == "" {
+			namespace = DefaultNamespace
+		}
+		answer, err := choose(r, out,
+			fmt.Sprintf("The namespace %q?", namespace),
+			[]string{
+				"create it (or keep what a previous install chose)",
+				"it exists already, created by whoever runs the cluster; leave it as it is",
+			}, 1)
+		if err != nil {
+			return err
+		}
+		if answer == 2 {
+			create := false
+			o.CreateNamespace = &create
+			return nil
+		}
+	}
+	if !o.createsNamespace() {
+		return nil
+	}
+	if !o.NamespaceLabelsSet {
+		fmt.Fprintln(out, "\nDo the cluster's admission policies require labels on a namespace? Enter each as key=value, and a blank line to finish.")
+		labels, err := askKeyValues(r, out, "Namespace label", validateLabelValue)
+		if err != nil {
+			return err
+		}
+		if len(labels) > 0 {
+			o.NamespaceLabels, o.NamespaceLabelsSet = labels, true
+		}
+	}
+	if !o.NamespaceAnnotationsSet {
+		annotations, err := askKeyValues(r, out, "Namespace annotation", nil)
+		if err != nil {
+			return err
+		}
+		if len(annotations) > 0 {
+			o.NamespaceAnnotations, o.NamespaceAnnotationsSet = annotations, true
+		}
+	}
+	return nil
+}
+
+// askKeyValues asks for key=value pairs until a blank answer.
+func askKeyValues(r *bufio.Reader, out io.Writer, prompt string, validateValue func(string) error) (map[string]string, error) {
+	got := map[string]string{}
+	for {
+		answer, err := ask(r, out, prompt+" (blank to finish)", "")
+		if err != nil {
+			return nil, err
+		}
+		answer = strings.TrimSpace(answer)
+		if answer == "" {
+			return got, nil
+		}
+		parsed, err := parseKeyValues(strings.ToLower(prompt), []string{answer}, validateValue)
+		if err != nil {
+			fmt.Fprintf(out, "  %v\n", err)
+			continue
+		}
+		for k, v := range parsed {
+			got[k] = v
+		}
+	}
 }
 
 // askStorageClass asks which StorageClass the bundled database's volume comes

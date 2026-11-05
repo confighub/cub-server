@@ -383,6 +383,43 @@ refused before anything is applied, with the commands to delete a database that 
 A database you run yourself, such as RDS, needs none of this: `--database=external
 --database-url <url>`.
 
+### Clusters with admission policies
+
+Many clusters run admission webhooks (OPA Gatekeeper, Kyverno) that refuse a namespace without
+the labels the organization requires, such as an owning team or a cost center. Name them, and the
+install puts them on the namespace it creates:
+
+```sh
+cub server install --kube-context my-cluster \
+  --namespace-label app.example.com/owner=platform \
+  --namespace-label cost-center=1234 \
+  --namespace-annotation example.com/contact=platform@example.com
+```
+
+Or, where a platform team creates namespaces through a process of its own, with whatever labels,
+quotas and policies it requires, create it first and deploy into it:
+
+```sh
+kubectl create namespace confighub   # or however your cluster's namespaces are made
+cub server install --kube-context my-cluster --create-namespace=false
+```
+
+The install then never applies the namespace, checks that it exists before deploying anything,
+and `cub server uninstall` deletes what it applied there and leaves the namespace in place.
+
+These flags render with the [installer](#rendering-with-the-installer), so they imply
+`--installer`. The package's Namespace carries its own labels, enforcing the `restricted` Pod
+Security Standard, and the labels and annotations you name are added to it with `cub function
+local`, which needs `cub` on your PATH. Every workload in the package meets `restricted`, and the
+package's validation refuses a render where one doesn't, so a namespace your cluster labels for
+`restricted` doesn't stop the install either. `install -i` asks for these when installing into a
+cluster you already have.
+
+What you chose is recorded in `namespace.yaml` in the out-dir, and a re-run, `cub server keycloak
+install` and `cub server uninstall` keep it without being told. `--namespace-label` replaces the
+recorded labels, and `--namespace-label ""` clears them; `--namespace-annotation` works the same way.
+`cub server upgrade` patches only the Deployments, so it leaves the namespace as it is.
+
 ## Secrets from your secret store
 
 By default the install applies the server's Secret, `confighub-secret-env`, itself. Where
@@ -436,6 +473,7 @@ default, or `--out-dir`):
 config/       manifests. No secrets — committable and diffable.
 secrets/      the Secrets. Not committable.
 installer/    with --installer: the installer's work directory, with the package it rendered
+namespace.yaml  with --namespace-label, --namespace-annotation or --create-namespace=false
 kubeconfig    for the cluster this install created
 kind-cluster.yaml
 ```
@@ -453,7 +491,8 @@ cub server uninstall --keep-config   # keep the config, so a reinstall is the sa
 ```
 
 For a kind install this deletes the cluster and everything in it, database included. For an
-install into an existing cluster it deletes the namespace and leaves the cluster alone. The
+install into an existing cluster it deletes the namespace and leaves the cluster alone, or, with
+`--create-namespace=false`, deletes what it applied to the namespace and leaves the namespace. The
 private key is left behind, even if it was generated as part of the install.
 
 ## Custom generating key material

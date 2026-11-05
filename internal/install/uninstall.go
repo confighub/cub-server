@@ -41,8 +41,14 @@ func Uninstall(ctx context.Context, u UI, o *Options, keepConfig bool) error {
 		if err := toolKubectl.require(); err != nil {
 			return err
 		}
-		u.step("Deleting namespace %q from context %q", o.Namespace, o.KubeContext)
 		kube := kubeEnv{context: o.KubeContext}
+		if !o.createsNamespace() {
+			if err := uninstallFromNamespace(ctx, u, o, kube); err != nil {
+				return err
+			}
+			break
+		}
+		u.step("Deleting namespace %q from context %q", o.Namespace, o.KubeContext)
 		// --ignore-not-found so a re-run after a partial teardown succeeds
 		// rather than failing on the half that is already gone.
 		if _, err := run(ctx, toolKubectl.name, kube.args(
