@@ -102,6 +102,21 @@ type Options struct {
 	ExistingSecret    string
 	ExistingSecretSet bool
 
+	// CreateNamespace is false to deploy into a namespace the operator created,
+	// which install then leaves as it is. Nil keeps what a previous run
+	// recorded, and is otherwise true. False implies Installer. See
+	// namespace.go.
+	CreateNamespace *bool
+
+	// NamespaceLabels and NamespaceAnnotations are set on the Namespace install
+	// creates, for clusters whose admission policies require them. Each is kept
+	// from a previous run unless its Set field says the flag was given.
+	// A label or annotation implies Installer.
+	NamespaceLabels         map[string]string
+	NamespaceLabelsSet      bool
+	NamespaceAnnotations    map[string]string
+	NamespaceAnnotationsSet bool
+
 	// Keycloak is set by `cub server keycloak install` and nil otherwise. It is
 	// the second chapter of an install, not a variation on the first: the
 	// server runs perfectly well without it, and keeps its local administrator
@@ -193,10 +208,20 @@ func (o *Options) Defaults() error {
 		}
 		o.OutDir = dir
 	}
+	if err := o.adoptRecordedNamespace(); err != nil {
+		return err
+	}
 	switch {
 	case o.InstallerPackage != "":
 		if o.InstallerSet && !o.Installer {
 			return fmt.Errorf("--installer-package renders with the installer, and --installer=false asks not to; pass one or the other")
+		}
+		o.Installer = true
+	case o.customizesNamespace():
+		// The namespace's settings are applied to the installer's render.
+		if o.InstallerSet && !o.Installer {
+			return fmt.Errorf("--namespace-label, --namespace-annotation and --create-namespace=false render with the installer, " +
+				"and --installer=false asks not to; pass one or the other")
 		}
 		o.Installer = true
 	case !o.InstallerSet:
@@ -287,6 +312,10 @@ func (o *Options) Validate() error {
 	}
 
 	if _, err := ParseRegistry(o.Registry); err != nil {
+		return err
+	}
+
+	if err := o.validateNamespaceSettings(); err != nil {
 		return err
 	}
 

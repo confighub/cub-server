@@ -42,6 +42,8 @@ Examples:
   cub server install --oci-url <url>           advertise the OCI registry at <url>
   cub server install --storage-class <name>    put the database's volume on <name>
   cub server install --existing-secret <name>  read secrets from a Secret you provide
+  cub server install --namespace-label k=v     label the namespace, as admission policies may require
+  cub server install --create-namespace=false  deploy into a namespace you created
 
 With --installer, the manifests are rendered by ConfigHub's installer, a cub
 plugin (cub plugin install confighub/installer; 0.3.4 or later), from
@@ -51,12 +53,35 @@ The package is pulled from ghcr.io/confighub/packages/confighub, or from
 not newer than the server's; --installer-package names another. Everything
 else is the same: this command still generates the keys and the Secrets, which
 the package leaves out, applies the result, and signs in. An instance keeps the
-renderer it was installed with; pass --installer=false to go back.`,
+renderer it was installed with; pass --installer=false to go back.
+
+On a cluster whose admission policies require labels on a namespace,
+--namespace-label and --namespace-annotation set them on the Namespace the
+installer renders, with cub function local. --create-namespace=false instead
+deploys into a namespace you created, and never applies or deletes it. Each
+implies --installer, and is kept by later runs.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ui := install.UI{Out: os.Stdout}
 		installOpts.InstallerSet = cmd.Flags().Changed("installer")
 		installOpts.ExistingSecretSet = cmd.Flags().Changed("existing-secret")
+		if cmd.Flags().Changed("create-namespace") {
+			installOpts.CreateNamespace = &installCreateNamespace
+		}
+		if cmd.Flags().Changed("namespace-label") {
+			labels, err := install.ParseNamespaceLabels(installNamespaceLabels)
+			if err != nil {
+				return err
+			}
+			installOpts.NamespaceLabels, installOpts.NamespaceLabelsSet = labels, true
+		}
+		if cmd.Flags().Changed("namespace-annotation") {
+			annotations, err := install.ParseNamespaceAnnotations(installNamespaceAnnotations)
+			if err != nil {
+				return err
+			}
+			installOpts.NamespaceAnnotations, installOpts.NamespaceAnnotationsSet = annotations, true
+		}
 		if installInteractive {
 			if err := install.Interview(os.Stdin, os.Stdout, &installOpts); err != nil {
 				return err
@@ -70,7 +95,12 @@ renderer it was installed with; pass --installer=false to go back.`,
 	},
 }
 
-var installInteractive bool
+var (
+	installInteractive          bool
+	installCreateNamespace      bool
+	installNamespaceLabels      []string
+	installNamespaceAnnotations []string
+)
 
 func init() {
 	f := installCmd.Flags()
@@ -84,6 +114,9 @@ func init() {
 	f.StringVar(&installOpts.KubeContext, "kube-context", "", "Kubeconfig context to install into, instead of creating a kind cluster")
 
 	f.StringVar(&installOpts.Namespace, "namespace", "", "Namespace to install into (default "+install.DefaultNamespace+")")
+	f.BoolVar(&installCreateNamespace, "create-namespace", true, "Create the namespace; false deploys into one you created, which install leaves as it is, and implies --installer (default: what a previous run recorded, else true)")
+	f.StringArrayVar(&installNamespaceLabels, "namespace-label", nil, "Label to set on the namespace install creates, as key=value, for clusters whose admission policies require them; repeatable, and \"\" clears them. Implies --installer (default: the ones a previous run recorded)")
+	f.StringArrayVar(&installNamespaceAnnotations, "namespace-annotation", nil, "Annotation to set on the namespace install creates, as key=value; repeatable, and \"\" clears them. Implies --installer (default: the ones a previous run recorded)")
 	f.StringVar(&installOpts.Registry, "registry", "", "Where to pull ConfigHub's images from: ghcr, gcr, or a mirror prefix holding <prefix>/confighub and <prefix>/ui, and <prefix>/packages/confighub for --installer (default ghcr)")
 	f.StringVar(&installOpts.Image, "image", "", "Server image, tag included (default: the newest released version, resolved from the registry)")
 	f.StringVar(&installOpts.UIImage, "ui-image", "", "Web UI image, tag included (default: the UI release matching the server's version)")

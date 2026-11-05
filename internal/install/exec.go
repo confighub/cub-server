@@ -73,10 +73,16 @@ func cubEnv() []string {
 	return out
 }
 
-// runCub executes a cub command, with the caller's own context stripped out.
-func runCub(ctx context.Context, cub string, args ...string) (string, error) {
+// cubCommand is a cub command, with the caller's own context stripped out.
+func cubCommand(ctx context.Context, cub string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, cub, args...)
 	cmd.Env = cubEnv()
+	return cmd
+}
+
+// runCub executes a cub command, returning its combined output.
+func runCub(ctx context.Context, cub string, args ...string) (string, error) {
+	cmd := cubCommand(ctx, cub, args...)
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
@@ -86,6 +92,35 @@ func runCub(ctx context.Context, cub string, args ...string) (string, error) {
 		return out, fmt.Errorf("%s %s: %w\n%s", cub, strings.Join(args, " "), err, strings.TrimSpace(out))
 	}
 	return out, nil
+}
+
+// runCubIn is runCub with stdin supplied, for a command whose stdout is data,
+// such as `cub function local -`. Only stdout is returned, since cub logs to
+// stderr; stderr is folded into the error instead.
+//
+// The error names the command by its arguments up to "--", and not the ones
+// after it, which are a function's and carry values.
+func runCubIn(ctx context.Context, stdin []byte, cub string, args ...string) ([]byte, error) {
+	cmd := cubCommand(ctx, cub, args...)
+	cmd.Stdin = bytes.NewReader(stdin)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		named, _, _ := cutArgs(args, "--")
+		return nil, fmt.Errorf("%s %s: %w\n%s", cub, strings.Join(named, " "), err, strings.TrimSpace(stderr.String()))
+	}
+	return stdout.Bytes(), nil
+}
+
+// cutArgs splits args around the first sep, as strings.Cut splits a string.
+func cutArgs(args []string, sep string) (before, after []string, found bool) {
+	for i, a := range args {
+		if a == sep {
+			return args[:i], args[i+1:], true
+		}
+	}
+	return args, nil, false
 }
 
 // run executes a command, returning its combined output. The output is folded

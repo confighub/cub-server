@@ -131,6 +131,8 @@ func contextInterviewOptions(t *testing.T) Options {
 		Target: TargetContext, KubeContext: "prod", APINodePort: 32180, OCIURL: "https://oci.example.com",
 		Database: string(config.DatabaseInternal), NewAdminKey: true, Image: "img:v1",
 		OutDir: t.TempDir(),
+		// Answered, as by --namespace-label, so the interview does not ask.
+		NamespaceLabelsSet: true, NamespaceAnnotationsSet: true,
 	}
 }
 
