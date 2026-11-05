@@ -20,9 +20,11 @@ signs in with a key. That is enough to evaluate ConfigHub and enough to run it
 alone. This is the next chapter: a Keycloak of its own, so other people can log
 in as themselves.
 
-It is additive. Your administrator key keeps working afterwards and becomes the
-break-glass credential -- the way back in when the identity provider is the
-thing that is broken.
+It is additive. Your administrator key keeps working afterwards, in the Local
+organization the install created. People who sign in through Keycloak are in an
+organization of their own, which that key does not reach. For a way back into it
+when Keycloak is what is broken, create a service account with the admin org
+role there and keep its key safe: it logs in without Keycloak.
 
 The server authenticates to Keycloak by signing an assertion with a key
 generated during this install. Keycloak holds only the public half. No client

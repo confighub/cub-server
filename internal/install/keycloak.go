@@ -20,8 +20,9 @@ import (
 // It is additive, which is the property that makes it safe to run. The local
 // administrator's key keeps working: the server decides on that key's presence,
 // not on whether an identity provider exists, so what this adds is a second way
-// in. The first then becomes the break-glass credential -- worth having,
-// because an identity provider is a thing that can break.
+// in. The first reaches only the local organization, not the one Keycloak's users
+// are in, so a way back into that one when the identity provider breaks is an
+// admin service account there, which logs in without Keycloak.
 //
 // Everything it writes goes through the same generator as the first install. The
 // Keycloak variables join the surface, the ConfigMap and Secret are re-rendered

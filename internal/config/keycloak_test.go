@@ -237,8 +237,8 @@ func TestKeycloakVarsOnlyWhenConfigured(t *testing.T) {
 			t.Errorf("%s is missing from an instance that has an identity provider", name)
 		}
 	}
-	// The local administrator survives. The server keys break-glass on this
-	// variable rather than on whether an identity provider exists, so adding one
+	// The local administrator survives. The server keys the local administrator on
+	// this variable rather than on whether an identity provider exists, so adding one
 	// must not take it away.
 	if s.Get(AdminJWKEnv) == "" {
 		t.Error("the local administrator key was dropped when Keycloak was added")
