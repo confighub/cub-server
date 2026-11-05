@@ -94,6 +94,14 @@ type Options struct {
 	StorageClass string
 	StorageSize  string
 
+	// ExistingSecret names a Secret the operator provides, which the server
+	// reads instead of one install applies. Empty keeps the one a previous run
+	// recorded; ExistingSecretSet says the flag was given, so that
+	// --existing-secret="" goes back to the rendered Secret. See
+	// existing_secret.go.
+	ExistingSecret    string
+	ExistingSecretSet bool
+
 	// Keycloak is set by `cub server keycloak install` and nil otherwise. It is
 	// the second chapter of an install, not a variation on the first: the
 	// server runs perfectly well without it, and keeps its local administrator
@@ -194,6 +202,9 @@ func (o *Options) Defaults() error {
 	case !o.InstallerSet:
 		o.Installer = renderedWithInstaller(o.OutDir)
 	}
+	if err := o.adoptRecordedSecret(); err != nil {
+		return err
+	}
 	return o.adoptRecordedStorage()
 }
 
@@ -279,6 +290,13 @@ func (o *Options) Validate() error {
 		return err
 	}
 
+	// The installer package names the server's Secret itself, and has no input
+	// to change it.
+	if o.Installer && o.ExistingSecret != "" && o.ExistingSecret != config.DefaultSecretName {
+		return fmt.Errorf("--installer renders workloads that read the Secret %s; with it, --existing-secret has to be %s, not %q",
+			config.DefaultSecretName, config.DefaultSecretName, o.ExistingSecret)
+	}
+
 	// The rest is the generator's own contract, checked by the same code that
 	// will check it again at Build time. Calling it here means a bad combination
 	// is reported before a cluster is created rather than after.
@@ -293,21 +311,22 @@ func (o *Options) Validate() error {
 // describes a deployment. Only the overlap crosses over.
 func (o *Options) deploymentOptions() config.Options {
 	opts := config.Options{
-		Namespace:    o.Namespace,
-		Image:        o.Image,
-		UIImage:      o.UIImage,
-		APIURL:       o.APIURL(),
-		UIURL:        o.UIURL(),
-		OCIURL:       o.OCIURL,
-		Database:     config.DatabaseMode(o.Database),
-		DatabaseURL:  o.DatabaseURL,
-		StorageClass: o.StorageClass,
-		StorageSize:  o.StorageSize,
-		Ingress:      config.IngressNone,
-		APINodePort:  o.APINodePort,
-		OCINodePort:  o.OCINodePort,
-		UINodePort:   o.UINodePort,
-		Keycloak:     o.Keycloak,
+		Namespace:      o.Namespace,
+		Image:          o.Image,
+		UIImage:        o.UIImage,
+		APIURL:         o.APIURL(),
+		UIURL:          o.UIURL(),
+		OCIURL:         o.OCIURL,
+		Database:       config.DatabaseMode(o.Database),
+		DatabaseURL:    o.DatabaseURL,
+		StorageClass:   o.StorageClass,
+		StorageSize:    o.StorageSize,
+		ExistingSecret: o.ExistingSecret,
+		Ingress:        config.IngressNone,
+		APINodePort:    o.APINodePort,
+		OCINodePort:    o.OCINodePort,
+		UINodePort:     o.UINodePort,
+		Keycloak:       o.Keycloak,
 	}
 	opts.Defaults()
 	return opts
