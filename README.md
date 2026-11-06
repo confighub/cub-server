@@ -135,6 +135,26 @@ cub auth browser-session
 
 `cub auth browser-session` signs a browser in as the service account. It needs server v0.10.8 or later.
 
+### Bringing your Spaces along
+
+To give Keycloak users what you built as the administrator, copy it into their organization. Add
+yourself in the Keycloak console as a member of the organization with the `admin` role, log in
+as that user in a context of its own, and copy. (A plain `cub auth login` in the administrator's
+context signs in with the administrator key again, rather than through Keycloak.)
+
+```sh
+cub context create keycloak --server http://localhost:32180 --use
+cub auth login
+cub server keycloak copy-local --dry-run   # see what it would copy
+cub server keycloak copy-local
+```
+
+Spaces are copied with their labels and annotations, Units with their current data, and the Links
+between them. Revision history, targets and workers, triggers, filters and views are not copied,
+and nothing is deleted from `Local`. A Space or Unit already in the Keycloak organization under the
+same slug is left as it is, so running it again copies only what is new. `--space` copies just the
+Spaces named.
+
 ### Connecting your identity provider
 
 While you can use keycloak to manage users directly, in most cases you will want to connect a ConfigHub organization to your company's identity provider using OIDC or SAML:
