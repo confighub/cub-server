@@ -117,7 +117,7 @@ cub server keycloak open
 
 This will copy the kcadmin password to the clipboard and open your browser on the web interface. Login with user `kcadmin` and the password in the clipboard.
 
-**This is additive.** Your administrator user and key keep working afterwards, in the `Local` organization the install created. People who sign in through Keycloak are in an organization of their own, which the administrator key does not reach, so it is no way back into that organization when Keycloak logins are broken.
+**This is additive.** Your administrator user and key keep working afterwards, in the `Local` organization the install created. Spaces you created as the administrator stay in the `Local` organization; people signing in through Keycloak start in `default` (or the organization named by `--org`) and do not see them. That organization is one the administrator key does not reach, so it is no way back into that organization when Keycloak logins are broken.
 
 For that, create a service account with the `admin` org role in that organization, and keep its private key somewhere safe, such as your secret manager. A service account logs in by signing with its key, without going through Keycloak, so it works when Keycloak is misconfigured or down. Create it signed in through Keycloak as someone with the `admin` org role, since a service account's role can be no higher than its creator's:
 
@@ -134,6 +134,28 @@ cub auth browser-session
 ```
 
 `cub auth browser-session` signs a browser in as the service account. It needs server v0.10.8 or later.
+
+### Bringing your Spaces along
+
+To give Keycloak users what you built as the administrator, copy it into their organization. Add
+yourself in the Keycloak console as a member of the organization with the `admin` role, log in
+as that user in a context of its own, and copy. (A plain `cub auth login` in the administrator's
+context signs in with the administrator key again, rather than through Keycloak.)
+
+```sh
+cub context create keycloak --server http://localhost:32180 --use
+cub auth login
+cub server keycloak import-local --dry-run   # see what it would copy
+cub server keycloak import-local
+```
+
+Spaces are copied with their labels and annotations, Units with their current data, and the Links
+between them. Revision history, targets and workers, triggers, filters and views are not copied,
+and nothing is deleted from `Local`. What only the administrator could read becomes readable by
+every member of the Keycloak organization who can view the Space it lands in, so check the dry run
+for anything that should stay behind. A Space or Unit already in the Keycloak organization under the
+same slug is left as it is, so running it again copies only what is new. `--space` copies just the
+Spaces named.
 
 ### Connecting your identity provider
 
