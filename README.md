@@ -117,7 +117,7 @@ cub server keycloak open
 
 This will copy the kcadmin password to the clipboard and open your browser on the web interface. Login with user `kcadmin` and the password in the clipboard.
 
-**This is additive.** Your administrator user and key keep working afterwards, in the `Local` organization the install created. People who sign in through Keycloak are in an organization of their own, which the administrator key does not reach, so it is no way back into that organization when Keycloak logins are broken.
+**This is additive.** Your administrator user and key keep working afterwards, in the `Local` organization the install created. Spaces you created as the administrator stay in the `Local` organization; people signing in through Keycloak start in `default` (or the organization named by `--org`) and do not see them. That organization is one the administrator key does not reach, so it is no way back into that organization when Keycloak logins are broken.
 
 For that, create a service account with the `admin` org role in that organization, and keep its private key somewhere safe, such as your secret manager. A service account logs in by signing with its key, without going through Keycloak, so it works when Keycloak is misconfigured or down. Create it signed in through Keycloak as someone with the `admin` org role, since a service account's role can be no higher than its creator's:
 
