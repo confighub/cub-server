@@ -39,6 +39,13 @@ Spaces are copied with their labels and annotations, Units with their current
 data, and the Links between them. Not copied: revision history, targets and
 workers (a target is a cluster's credentials in the organization that
 registered it), triggers, filters and views. Nothing is deleted from Local.
+What only the administrator could read becomes readable by every member of
+the Keycloak organization who can view the Space it lands in, so check the
+--dry-run for anything that should stay in Local.
+
+Links are copied with all their settings, between the copies of their Units.
+A Link to a Unit in a Space not being copied, or one that runs an Invocation,
+is left out and counted.
 
 A Space that is already there by slug -- the default Space, usually -- gets
 the Units it does not have; a Unit that is already there is left as it is. So

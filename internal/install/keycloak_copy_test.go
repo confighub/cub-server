@@ -2,6 +2,11 @@ package install
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -73,8 +78,8 @@ func TestPlanCopyMatchesBySlug(t *testing.T) {
 			}
 		}
 	}
-	if len(plan.LinksOut) != 0 {
-		t.Errorf("LinksOut = %d, want 0", len(plan.LinksOut))
+	if len(plan.SkippedLinks) != 0 {
+		t.Errorf("SkippedLinks = %d, want 0", len(plan.SkippedLinks))
 	}
 }
 
@@ -88,8 +93,8 @@ func TestPlanCopyLeavesOutLinksToSpacesNotCopied(t *testing.T) {
 		Links:  []*goclientnew.Link{link(lApps, "web-a", web, a)},
 	}
 	plan := planCopy(src, &orgContents{})
-	if len(plan.Links) != 0 || len(plan.LinksOut) != 1 {
-		t.Fatalf("Links = %d, LinksOut = %d; want 0 and 1", len(plan.Links), len(plan.LinksOut))
+	if len(plan.Links) != 0 || len(plan.SkippedLinks) != 1 || plan.SkippedLinks[0].Reason != skipOutside {
+		t.Fatalf("Links = %d, SkippedLinks = %+v; want none copied and one skipped as outside", len(plan.Links), plan.SkippedLinks)
 	}
 }
 
@@ -143,5 +148,149 @@ func TestReportPlanDryRunSaysNothingWasWritten(t *testing.T) {
 		if !strings.Contains(s, want) {
 			t.Errorf("report lacks %q:\n%s", want, s)
 		}
+	}
+}
+
+func TestPlanCopySkipsLinksThatRunAnInvocation(t *testing.T) {
+	lApps := space("apps")
+	web, db := unitIn(lApps, "web"), unitIn(lApps, "db")
+	l := link(lApps, "upsert", web, db)
+	l.UpdateType = "Upsert"
+	inv := uuid.New()
+	l.TransformInvocationID = &inv
+	plan := planCopy(&orgContents{Spaces: []*goclientnew.Space{lApps}, Units: []*goclientnew.Unit{web, db},
+		Links: []*goclientnew.Link{l}}, &orgContents{})
+	if len(plan.Links) != 0 || len(plan.SkippedLinks) != 1 || plan.SkippedLinks[0].Reason != skipInvocation {
+		t.Fatalf("Links = %d, SkippedLinks = %+v; want the Invocation's link skipped", len(plan.Links), plan.SkippedLinks)
+	}
+}
+
+func TestPlanCopyMarksMergeLinksBehindTheirUpstream(t *testing.T) {
+	lApps := space("apps")
+	base, prod := unitIn(lApps, "base"), unitIn(lApps, "prod")
+	base.HeadRevisionNum = 7
+	current, behind := link(lApps, "current", prod, base), link(lApps, "behind", prod, base)
+	current.UpdateType, current.UpstreamLastMergedRevisionNum = "MergeUnits", 7
+	behind.UpdateType, behind.UpstreamLastMergedRevisionNum = "MergeUnits", 5
+	plan := planCopy(&orgContents{Spaces: []*goclientnew.Space{lApps}, Units: []*goclientnew.Unit{base, prod},
+		Links: []*goclientnew.Link{current, behind}}, &orgContents{})
+	got := map[string]bool{}
+	for _, lc := range plan.Links {
+		got[lc.Src.Slug] = lc.Behind
+	}
+	if want := map[string]bool{"current": false, "behind": true}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Behind = %v, want %v", got, want)
+	}
+}
+
+func TestLinkBodyKeepsSettingsAndRemapsReferences(t *testing.T) {
+	lApps := space("apps")
+	base, prod := unitIn(lApps, "base"), unitIn(lApps, "prod")
+	backing, upstreamLink := uuid.New(), uuid.New()
+	src := link(lApps, "prod-from-base", prod, base)
+	src.UpdateType = "MergeUnits"
+	src.AutoUpdate = true
+	src.WhereResource = "ResourceType = 'apps/v1/Deployment'"
+	src.WhereMutation = "Path LIKE 'spec.replicas%'"
+	src.ManualBindings = &goclientnew.BindingList{}
+	src.Squash = true
+	src.Labels = map[string]string{"tier": "web"}
+	src.UpstreamLastMergedRevisionNum, src.DownstreamLastMergedRevisionNum = 12, 9
+	src.Hash, src.Stale, src.Version = "abc", true, 4
+	src.Bindings = &goclientnew.BindingList{}
+	src.BackingUnitID, src.UpstreamLinkID = &backing, &upstreamLink
+
+	dSpace, dBase, dProd := uuid.New(), uuid.New(), uuid.New()
+	body := linkBody(src,
+		map[goclientnew.UUID]goclientnew.UUID{lApps.SpaceID: dSpace},
+		map[goclientnew.UUID]goclientnew.UUID{base.UnitID: dBase, prod.UnitID: dProd},
+		map[goclientnew.UUID]int64{base.UnitID: 2, prod.UnitID: 3})
+
+	// What the Link does, kept.
+	if body.UpdateType != "MergeUnits" || !body.AutoUpdate || body.WhereResource != src.WhereResource ||
+		body.WhereMutation != src.WhereMutation || body.ManualBindings == nil || !body.Squash ||
+		body.Labels["tier"] != "web" || body.Slug != src.Slug {
+		t.Errorf("settings not carried over: %+v", body)
+	}
+	// Between the copies.
+	if body.FromUnitID != dProd || body.ToUnitID != dBase || body.ToSpaceID != dSpace {
+		t.Errorf("units = %v -> %v in %v, want the copies", body.FromUnitID, body.ToUnitID, body.ToSpaceID)
+	}
+	// Merged up to what the copies hold, not the source's revision numbers.
+	if body.UpstreamLastMergedRevisionNum != 2 || body.DownstreamLastMergedRevisionNum != 3 {
+		t.Errorf("merge base = %d/%d, want the copies' heads 2/3",
+			body.UpstreamLastMergedRevisionNum, body.DownstreamLastMergedRevisionNum)
+	}
+	// Nothing the server owns, and nothing naming the source organization.
+	var zero goclientnew.UUID
+	if body.LinkID != zero || body.SpaceID != zero || body.Hash != "" || body.Stale || body.Version != 0 ||
+		body.Bindings != nil || body.BackingUnitID != nil || body.UpstreamLinkID != nil {
+		t.Errorf("server-owned or source references kept: %+v", body)
+	}
+	// The source is left as it was.
+	if src.FromUnitID != prod.UnitID || src.UpstreamLastMergedRevisionNum != 12 {
+		t.Errorf("linkBody changed its source")
+	}
+}
+
+func TestLinkBodyLeavesOtherLinksUnmerged(t *testing.T) {
+	lApps := space("apps")
+	web, ns := unitIn(lApps, "web"), unitIn(lApps, "ns")
+	src := link(lApps, "web-to-ns", web, ns)
+	src.UpdateType = "NeedsProvides"
+	src.UpstreamLastMergedRevisionNum = 4
+	body := linkBody(src, map[goclientnew.UUID]goclientnew.UUID{},
+		map[goclientnew.UUID]goclientnew.UUID{web.UnitID: uuid.New(), ns.UnitID: uuid.New()},
+		map[goclientnew.UUID]int64{web.UnitID: 2, ns.UnitID: 2})
+	if body.UpstreamLastMergedRevisionNum != 0 || body.DownstreamLastMergedRevisionNum != 0 {
+		t.Errorf("merge base = %d/%d on a NeedsProvides link, want 0/0",
+			body.UpstreamLastMergedRevisionNum, body.DownstreamLastMergedRevisionNum)
+	}
+}
+
+// fakeAPI answers the calls copyUnit makes, failing the data upload.
+type fakeAPI struct {
+	unitID  goclientnew.UUID
+	deleted []string
+}
+
+func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	switch {
+	case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/data"):
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = io.WriteString(w, "apiVersion: v1\nkind: ConfigMap\n")
+	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/unit"):
+		_ = json.NewEncoder(w).Encode(goclientnew.UnitCreateOrUpdateResponse{
+			Unit: &goclientnew.Unit{UnitID: f.unitID, Slug: "web", HeadRevisionNum: 1}})
+	case r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/data"):
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, `{"Message":"disk full","Type":"Internal","Status":500}`)
+	case r.Method == http.MethodDelete:
+		f.deleted = append(f.deleted, r.URL.Path)
+		_, _ = io.WriteString(w, `{}`)
+	default:
+		http.Error(w, "unexpected "+r.Method+" "+r.URL.Path, http.StatusNotImplemented)
+	}
+}
+
+func TestCopyUnitRemovesTheUnitWhenItsDataCannotBeWritten(t *testing.T) {
+	api := &fakeAPI{unitID: uuid.New()}
+	srv := httptest.NewServer(api)
+	defer srv.Close()
+	client, err := cubapi.NewClient(cubapi.ClientOptions{ServerURL: srv.URL, Token: "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lApps := space("apps")
+	dst := uuid.New()
+	_, err = copyUnit(context.Background(), client, client, unitIn(lApps, "web"), dst)
+	if err == nil || !strings.Contains(err.Error(), "writing its data") {
+		t.Fatalf("err = %v, want the failed write", err)
+	}
+	want := "/api/space/" + dst.String() + "/unit/" + api.unitID.String()
+	if len(api.deleted) != 1 || api.deleted[0] != want {
+		t.Fatalf("deleted %v, want %s: an empty Unit left behind reads as copied on the next run", api.deleted, want)
 	}
 }

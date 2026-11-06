@@ -151,7 +151,9 @@ cub server keycloak copy-local
 
 Spaces are copied with their labels and annotations, Units with their current data, and the Links
 between them. Revision history, targets and workers, triggers, filters and views are not copied,
-and nothing is deleted from `Local`. A Space or Unit already in the Keycloak organization under the
+and nothing is deleted from `Local`. What only the administrator could read becomes readable by
+every member of the Keycloak organization who can view the Space it lands in, so check the dry run
+for anything that should stay behind. A Space or Unit already in the Keycloak organization under the
 same slug is left as it is, so running it again copies only what is new. `--space` copies just the
 Spaces named.
 

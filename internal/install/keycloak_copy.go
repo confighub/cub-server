@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/confighub/sdk/core/cubapi"
 	goclientnew "github.com/confighub/sdk/core/openapi/goclient-new"
@@ -295,31 +296,34 @@ func readOrg(ctx context.Context, c *cubapi.Client, slugs []string) (*orgContent
 		return nil, err
 	}
 	out := &orgContents{}
-	var ids []goclientnew.UUID
+	inSpace := map[goclientnew.UUID]bool{}
 	for _, s := range spaces {
 		if s.Space != nil {
 			out.Spaces = append(out.Spaces, s.Space)
-			ids = append(ids, s.Space.SpaceID)
+			inSpace[s.Space.SpaceID] = true
 		}
 	}
-	if len(ids) == 0 {
+	if len(inSpace) == 0 {
 		return out, nil
 	}
-	units, err := cubapi.ListUnits(ctx, c, cubapi.Where{}.In("SpaceID", ids), cubapi.ListOpts{OrderBy: "Slug"})
+	// The whole organization, kept to the Spaces in code. A SpaceID IN (...)
+	// clause grows with the number of Spaces, and past the server's
+	// cubapi.MaxFilterLength it is refused outright.
+	units, err := cubapi.ListUnits(ctx, c, cubapi.Where{}, cubapi.ListOpts{OrderBy: "Slug"})
 	if err != nil {
 		return nil, err
 	}
 	for _, x := range units {
-		if x.Unit != nil {
+		if x.Unit != nil && inSpace[x.Unit.SpaceID] {
 			out.Units = append(out.Units, x.Unit)
 		}
 	}
-	links, err := cubapi.ListLinks(ctx, c, cubapi.Where{}.In("SpaceID", ids), cubapi.ListOpts{OrderBy: "Slug"})
+	links, err := cubapi.ListLinks(ctx, c, cubapi.Where{}, cubapi.ListOpts{OrderBy: "Slug"})
 	if err != nil {
 		return nil, err
 	}
 	for _, x := range links {
-		if x.Link != nil {
+		if x.Link != nil && inSpace[x.Link.SpaceID] {
 			out.Links = append(out.Links, x.Link)
 		}
 	}
@@ -347,10 +351,20 @@ type copyPlan struct {
 	Spaces []*spaceCopy
 	Links  []*linkCopy
 
-	// LinksOut are the Links that point outside the Spaces being copied, which
-	// cannot be made without the Unit at their other end.
-	LinksOut []*goclientnew.Link
+	// SkippedLinks are the Links a copy cannot make, each with why.
+	SkippedLinks []skippedLink
 }
+
+// skippedLink is a Link left out of a copy.
+type skippedLink struct {
+	Link   *goclientnew.Link
+	Reason string
+}
+
+const (
+	skipOutside    = "link to a Unit outside the Spaces copied"
+	skipInvocation = "run an Invocation, which is not copied"
+)
 
 type spaceCopy struct {
 	Src *goclientnew.Space
@@ -375,6 +389,15 @@ type linkCopy struct {
 	Src *goclientnew.Link
 	// Create is set when the destination Space has no Link of this slug.
 	Create bool
+	// Behind is set on a merge Link that had not yet taken its upstream Unit's
+	// latest change in the source. See linkBody for what that costs the copy.
+	Behind bool
+}
+
+// isMergeLink reports whether a Link merges its upstream Unit's revisions,
+// and so keeps a merge base that a copy has to set.
+func isMergeLink(l *goclientnew.Link) bool {
+	return l.UpdateType == "MergeUnits" || l.UpdateType == "UpgradeUnit"
 }
 
 // planCopy matches the source against the destination by slug.
@@ -410,7 +433,9 @@ func planCopy(src, dst *orgContents) *copyPlan {
 		bySpaceID[s.SpaceID] = sc
 	}
 	copiedUnit := map[goclientnew.UUID]bool{}
+	srcHead := map[goclientnew.UUID]int64{}
 	for _, x := range src.Units {
+		srcHead[x.UnitID] = x.HeadRevisionNum
 		sc := bySpaceID[x.SpaceID]
 		if sc == nil {
 			continue
@@ -428,11 +453,18 @@ func planCopy(src, dst *orgContents) *copyPlan {
 		if sc == nil {
 			continue
 		}
-		if !copiedUnit[l.FromUnitID] || !copiedUnit[l.ToUnitID] {
-			plan.LinksOut = append(plan.LinksOut, l)
-			continue
+		switch {
+		case !copiedUnit[l.FromUnitID] || !copiedUnit[l.ToUnitID]:
+			plan.SkippedLinks = append(plan.SkippedLinks, skippedLink{l, skipOutside})
+		case l.TransformInvocationID != nil:
+			plan.SkippedLinks = append(plan.SkippedLinks, skippedLink{l, skipInvocation})
+		default:
+			plan.Links = append(plan.Links, &linkCopy{
+				Src:    l,
+				Create: sc.Create || !dstLinks[[2]string{sc.Src.Slug, l.Slug}],
+				Behind: isMergeLink(l) && l.UpstreamLastMergedRevisionNum < srcHead[l.ToUnitID],
+			})
 		}
-		plan.Links = append(plan.Links, &linkCopy{Src: l, Create: sc.Create || !dstLinks[[2]string{sc.Src.Slug, l.Slug}]})
 	}
 	return plan
 }
@@ -442,6 +474,7 @@ func planCopy(src, dst *orgContents) *copyPlan {
 func (p *copyPlan) apply(ctx context.Context, u UI, from, to *cubapi.Client) error {
 	spaceID := map[goclientnew.UUID]goclientnew.UUID{} // source Space ID -> destination
 	unitID := map[goclientnew.UUID]goclientnew.UUID{}  // source Unit ID -> destination
+	unitHead := map[goclientnew.UUID]int64{}           // source Unit ID -> destination head revision
 
 	for _, sc := range p.Spaces {
 		if sc.Create {
@@ -457,17 +490,16 @@ func (p *copyPlan) apply(ctx context.Context, u UI, from, to *cubapi.Client) err
 		spaceID[sc.Src.SpaceID] = sc.Dst.SpaceID
 
 		for _, uc := range sc.Units {
-			if !uc.Create {
-				unitID[uc.Src.UnitID] = uc.Dst.UnitID
-				continue
+			if uc.Create {
+				created, err := copyUnit(ctx, from, to, uc.Src, sc.Dst.SpaceID)
+				if err != nil {
+					return fmt.Errorf("copying Unit %s/%s: %w", sc.Src.Slug, uc.Src.Slug, err)
+				}
+				uc.Dst = created
+				u.detail("  unit %s/%s: copied", sc.Src.Slug, uc.Src.Slug)
 			}
-			created, err := copyUnit(ctx, from, to, uc.Src, sc.Dst.SpaceID)
-			if err != nil {
-				return fmt.Errorf("copying Unit %s/%s: %w", sc.Src.Slug, uc.Src.Slug, err)
-			}
-			uc.Dst = created
-			unitID[uc.Src.UnitID] = created.UnitID
-			u.detail("  unit %s/%s: copied", sc.Src.Slug, uc.Src.Slug)
+			unitID[uc.Src.UnitID] = uc.Dst.UnitID
+			unitHead[uc.Src.UnitID] = uc.Dst.HeadRevisionNum
 		}
 	}
 
@@ -475,7 +507,8 @@ func (p *copyPlan) apply(ctx context.Context, u UI, from, to *cubapi.Client) err
 		if !lc.Create {
 			continue
 		}
-		if err := createLink(ctx, to, lc.Src, spaceID, unitID); err != nil {
+		body := linkBody(lc.Src, spaceID, unitID, unitHead)
+		if err := createLink(ctx, to, spaceID[lc.Src.SpaceID], body); err != nil {
 			return fmt.Errorf("creating Link %s: %w", lc.Src.Slug, err)
 		}
 		u.detail("  link %s: created", lc.Src.Slug)
@@ -532,11 +565,23 @@ func copyUnit(ctx context.Context, from, to *cubapi.Client, src *goclientnew.Uni
 	up, err := to.API.UploadUnitDataWithBodyWithResponse(ctx, spaceID, created.UnitID,
 		&goclientnew.UploadUnitDataParams{MergeExternalSource: &source},
 		"application/octet-stream", strings.NewReader(data))
-	if cubapi.IsAPIError(err, up) {
-		return nil, fmt.Errorf("writing its data: %w", cubapi.InterpretErrorGeneric(err, up))
+	var writeErr error
+	switch {
+	case cubapi.IsAPIError(err, up):
+		writeErr = cubapi.InterpretErrorGeneric(err, up)
+	case up.JSON200.Error != nil:
+		writeErr = fmt.Errorf("%s", up.JSON200.Error.Message)
 	}
-	if up.JSON200.Error != nil {
-		return nil, fmt.Errorf("writing its data: %s", up.JSON200.Error.Message)
+	if writeErr != nil {
+		// A Unit left without its data would read as copied: the next run finds
+		// it by slug and leaves it as it is. So it goes, and the next run makes
+		// it again.
+		del, derr := to.API.DeleteUnitWithResponse(ctx, spaceID, created.UnitID, &goclientnew.DeleteUnitParams{})
+		if cubapi.IsAPIError(derr, del) {
+			return nil, fmt.Errorf("writing its data: %w; and the Unit created for it, now empty, could not be removed (%v): delete it before running this again",
+				writeErr, cubapi.InterpretErrorGeneric(derr, del))
+		}
+		return nil, fmt.Errorf("writing its data: %w", writeErr)
 	}
 	if up.JSON200.Unit != nil {
 		created = up.JSON200.Unit
@@ -544,24 +589,51 @@ func copyUnit(ctx context.Context, from, to *cubapi.Client, src *goclientnew.Uni
 	return created, nil
 }
 
-// createLink makes the source Link between the copies of its two Units.
-func createLink(ctx context.Context, c *cubapi.Client, src *goclientnew.Link,
-	spaceID, unitID map[goclientnew.UUID]goclientnew.UUID) error {
-	body := goclientnew.Link{
-		Slug:                   src.Slug,
-		DisplayName:            src.DisplayName,
-		Labels:                 src.Labels,
-		Annotations:            src.Annotations,
-		FromUnitID:             unitID[src.FromUnitID],
-		ToUnitID:               unitID[src.ToUnitID],
-		ToSpaceID:              spaceID[src.ToSpaceID],
-		UpdateType:             src.UpdateType,
-		AutoUpdate:             src.AutoUpdate,
-		MergeEnableSubtraction: src.MergeEnableSubtraction,
-		UpstreamPaths:          src.UpstreamPaths,
-		DownstreamPaths:        src.DownstreamPaths,
+// linkBody is the source Link as the destination should have it: every field
+// the source set, between the copies of its two Units.
+//
+// Copied whole rather than field by field, because a Link's behaviour is spread
+// over many fields -- WhereResource, ManualBindings, getters and setters,
+// protection, guards -- and one left behind changes what the copy does rather
+// than failing. What is cleared is what the server owns or what names an
+// entity of the source organization.
+//
+// A merge Link's base is set to the copied upstream Unit's head. The copied
+// downstream Unit already holds what was merged, and revision numbers do not
+// carry over, so a base of 0 -- "nothing merged yet" -- would merge the whole
+// upstream into it again, over whatever it has changed. The cost is a Link that
+// was Behind in the source: the copy counts that change as merged.
+func linkBody(src *goclientnew.Link, spaceID, unitID map[goclientnew.UUID]goclientnew.UUID,
+	unitHead map[goclientnew.UUID]int64) goclientnew.Link {
+	body := *src
+	body.LinkID, body.SpaceID, body.OrganizationID = goclientnew.UUID{}, goclientnew.UUID{}, goclientnew.UUID{}
+	body.SpaceSlug, body.EntityType, body.Hash = "", "", ""
+	body.CreatedAt, body.UpdatedAt = time.Time{}, time.Time{}
+	body.Version = 0
+	body.Permissions = nil
+	body.Stale = false
+	// What resolution found, not what anyone stated; the copy's resolution finds
+	// its own. ManualBindings, the stated ones, are kept.
+	body.Bindings = nil
+	body.BackingUnitID, body.UpstreamLinkID, body.UpstreamSpaceID = nil, nil, nil
+
+	body.FromUnitID = unitID[src.FromUnitID]
+	body.ToUnitID = unitID[src.ToUnitID]
+	body.ToSpaceID = spaceID[src.ToSpaceID]
+
+	body.UpstreamLastMergedRevisionNum, body.DownstreamLastMergedRevisionNum = 0, 0
+	if isMergeLink(src) {
+		body.UpstreamLastMergedRevisionNum = unitHead[src.ToUnitID]
+		if src.DownstreamLastMergedRevisionNum != 0 {
+			body.DownstreamLastMergedRevisionNum = unitHead[src.FromUnitID]
+		}
 	}
-	res, err := c.API.CreateLinkWithResponse(ctx, spaceID[src.SpaceID], &goclientnew.CreateLinkParams{}, body)
+	return body
+}
+
+// createLink makes a Link in spaceID.
+func createLink(ctx context.Context, c *cubapi.Client, spaceID goclientnew.UUID, body goclientnew.Link) error {
+	res, err := c.API.CreateLinkWithResponse(ctx, spaceID, &goclientnew.CreateLinkParams{}, body)
 	if cubapi.IsAPIError(err, res) {
 		return cubapi.InterpretErrorGeneric(err, res)
 	}
@@ -573,10 +645,9 @@ func createLink(ctx context.Context, c *cubapi.Client, src *goclientnew.Link,
 type leftOut struct {
 	Targets, Triggers, Filters, Views int
 	// TargetedUnits are the Units that had a target, which their copies do not.
+	// A clone needs no such count: copying its UpgradeUnit Link is what makes
+	// the server record the copy's upstream Unit again.
 	TargetedUnits int
-	// Clones are the Units copied from an upstream Unit, whose copies are plain
-	// Units: the upgrade Link between them is copied, the clone relation is not.
-	Clones int
 }
 
 func leftBehind(ctx context.Context, c *cubapi.Client, src *orgContents) (leftOut, error) {
@@ -585,35 +656,51 @@ func leftBehind(ctx context.Context, c *cubapi.Client, src *orgContents) (leftOu
 		if x.TargetID != nil {
 			l.TargetedUnits++
 		}
-		if x.UpstreamUnitID != nil {
-			l.Clones++
-		}
 	}
-	var ids []goclientnew.UUID
+	in := map[goclientnew.UUID]bool{}
 	for _, s := range src.Spaces {
-		ids = append(ids, s.SpaceID)
+		in[s.SpaceID] = true
 	}
-	if len(ids) == 0 {
+	if len(in) == 0 {
 		return l, nil
 	}
-	in := cubapi.Where{}.In("SpaceID", ids)
-	targets, err := cubapi.ListTargets(ctx, c, in, cubapi.ListOpts{Select: "TargetID"})
+	// Org-wide and counted per Space here, for the reason readOrg gives.
+	targets, err := cubapi.ListTargets(ctx, c, cubapi.Where{}, cubapi.ListOpts{Select: "TargetID,SpaceID"})
 	if err != nil {
 		return l, err
 	}
-	triggers, err := cubapi.ListTriggers(ctx, c, in, cubapi.ListOpts{Select: "TriggerID"})
+	for _, x := range targets {
+		if x.Target != nil && in[x.Target.SpaceID] {
+			l.Targets++
+		}
+	}
+	triggers, err := cubapi.ListTriggers(ctx, c, cubapi.Where{}, cubapi.ListOpts{Select: "TriggerID,SpaceID"})
 	if err != nil {
 		return l, err
 	}
-	filters, err := cubapi.ListFilters(ctx, c, in, cubapi.ListOpts{Select: "FilterID"})
+	for _, x := range triggers {
+		if x.Trigger != nil && in[x.Trigger.SpaceID] {
+			l.Triggers++
+		}
+	}
+	filters, err := cubapi.ListFilters(ctx, c, cubapi.Where{}, cubapi.ListOpts{Select: "FilterID,SpaceID"})
 	if err != nil {
 		return l, err
 	}
-	views, err := cubapi.ListViews(ctx, c, in, cubapi.ListOpts{Select: "ViewID"})
+	for _, x := range filters {
+		if x.Filter != nil && in[x.Filter.SpaceID] {
+			l.Filters++
+		}
+	}
+	views, err := cubapi.ListViews(ctx, c, cubapi.Where{}, cubapi.ListOpts{Select: "ViewID,SpaceID"})
 	if err != nil {
 		return l, err
 	}
-	l.Targets, l.Triggers, l.Filters, l.Views = len(targets), len(triggers), len(filters), len(views)
+	for _, x := range views {
+		if x.View != nil && in[x.View.SpaceID] {
+			l.Views++
+		}
+	}
 	return l, nil
 }
 
@@ -673,8 +760,14 @@ func reportPlan(u UI, p *copyPlan, left leftOut, dryRun bool) {
 		fmt.Sprintf("links    %d %s, %d already there", linksNew, verb, linksThere),
 	}
 	var notes []string
-	if n := len(p.LinksOut); n > 0 {
-		notes = append(notes, fmt.Sprintf("%d link(s) to Units outside the Spaces copied", n))
+	skipped := map[string]int{}
+	for _, s := range p.SkippedLinks {
+		skipped[s.Reason]++
+	}
+	for _, reason := range []string{skipOutside, skipInvocation} {
+		if n := skipped[reason]; n > 0 {
+			notes = append(notes, fmt.Sprintf("%d link(s) that %s", n, reason))
+		}
 	}
 	if left.Targets > 0 || left.TargetedUnits > 0 {
 		notes = append(notes, fmt.Sprintf("%d target(s), and the target of %d unit(s): a target is a cluster's"+
@@ -689,18 +782,27 @@ func reportPlan(u UI, p *copyPlan, left leftOut, dryRun bool) {
 	if left.Views > 0 {
 		notes = append(notes, fmt.Sprintf("%d view(s)", left.Views))
 	}
-	if left.Clones > 0 {
-		notes = append(notes, fmt.Sprintf("the clone relation of %d unit(s), which arrive as plain units", left.Clones))
-	}
 	if len(notes) > 0 {
 		lines = append(lines, "", "Not copied:")
 		for _, n := range notes {
 			lines = append(lines, "  "+n)
 		}
 	}
+	behind := 0
+	for _, lc := range p.Links {
+		if lc.Create && lc.Behind {
+			behind++
+		}
+	}
+	if behind > 0 {
+		lines = append(lines, "",
+			fmt.Sprintf("%d merge link(s) had not taken their upstream Unit's latest change in Local.", behind),
+			"Their copies count it as taken, so carry that change over by hand.")
+	}
 	lines = append(lines, "",
 		"Units arrive with their current data, not their revision history, and nothing",
-		"is deleted from the Local organization.")
+		"is deleted from the Local organization. Every member of the Keycloak",
+		"organization who can view a Space can read what is copied into it.")
 	if dryRun {
 		lines = append(lines, "", "Re-run without --dry-run to copy.")
 	}
