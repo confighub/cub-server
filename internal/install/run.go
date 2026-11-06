@@ -176,6 +176,7 @@ func generate(ctx context.Context, u UI, o *Options) ([]config.File, string, err
 	if err := resolveUIImage(u, o); err != nil {
 		return nil, "", err
 	}
+	warnIfCubTooOld(ctx, u, o)
 
 	opts := o.deploymentOptions()
 	switch {
@@ -518,6 +519,10 @@ func authenticate(ctx context.Context, u UI, o *Options, keyPath string) error {
 		u.warn("cub is not on PATH, so this last step is yours to run")
 		return reportSuccess(u, o, keyPath, false)
 	}
+	if !reportCubVersion(u, cub, checkCubVersion(ctx, cub, o.Image)) {
+		u.warn("so this last step is yours to run, once cub is upgraded")
+		return reportSuccess(u, o, keyPath, false, cubUpgrade)
+	}
 
 	if err := login(ctx, cub, o.APIURL(), o.AdminKeyName); err != nil {
 		return err
@@ -534,7 +539,10 @@ func authenticate(ctx context.Context, u UI, o *Options, keyPath string) error {
 	return reportSuccess(u, o, keyPath, true)
 }
 
-func reportSuccess(u UI, o *Options, keyPath string, authenticated bool) error {
+// reportSuccess closes the install. When it is not authenticated, the sign-in
+// commands are printed for the operator to run, after first, which are whatever
+// has to happen before they can work.
+func reportSuccess(u UI, o *Options, keyPath string, authenticated bool, first ...string) error {
 	lines := []string{
 		"UI           " + o.UIURL(),
 		"API          " + o.APIURL(),
@@ -552,7 +560,7 @@ func reportSuccess(u UI, o *Options, keyPath string, authenticated bool) error {
 			"cub auth browser-session      # open the same session in a browser",
 		)
 	} else {
-		lines := append([]string{}, manualLoginInstructions(o.APIURL(), o.AdminKeyName)...)
+		lines := append(append([]string{}, first...), manualLoginInstructions(o.APIURL(), o.AdminKeyName)...)
 		u.section("To sign in:", lines...)
 	}
 

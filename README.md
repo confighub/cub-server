@@ -46,6 +46,12 @@ The server advertises where its UI is (`UIURL` in `/api/info`, from `CONFIGHUB_U
 `cub auth login` records it on the context, so this opens the UI container. That needs cub
 v0.8.2 or newer.
 
+The install signs in with the first `cub` on your `PATH`, which may not be the one that ran
+`cub server`, so it checks that cub's version first. It needs v0.8.2 or newer, and no older than the
+server's own MAJOR.MINOR, which is what `cub version` and `cub auth status` require of a client. If
+it is older, the install warns before building the cluster, still completes, and ends by printing
+`cub upgrade` and the sign-in commands to run.
+
 ### Rendering with the installer
 
 ```sh
