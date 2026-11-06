@@ -9,11 +9,11 @@ import (
 	"github.com/confighub/cub-server/internal/install"
 )
 
-var keycloakCopyOpts install.CopyOptions
+var keycloakImportOpts install.ImportOptions
 
-var keycloakCopyCmd = &cobra.Command{
-	Use:   "copy-local",
-	Short: "Copy the Local organization's Spaces into the organization Keycloak users are in",
+var keycloakImportCmd = &cobra.Command{
+	Use:   "import-local",
+	Short: "Import the Local organization's Spaces into the organization Keycloak users are in",
 	Long: `Copy what the administrator built before Keycloak was installed into the
 organization people who sign in through Keycloak are in.
 
@@ -30,7 +30,7 @@ and writes as a cub context logged in to the Keycloak organization, so first:
        cub auth login
      (a plain 'cub auth login' in the administrator's context signs in with
      the administrator key again, rather than through Keycloak)
-  3. cub server keycloak copy-local --dry-run, to see what it would do
+  3. cub server keycloak import-local --dry-run, to see what it would do
 
 The context is the only one on this server that is not the administrator's,
 or the one named by --to-context.
@@ -52,15 +52,15 @@ the Units it does not have; a Unit that is already there is left as it is. So
 re-running it copies only what is new.
 
 Examples:
-  cub server keycloak copy-local --dry-run           show what would be copied
-  cub server keycloak copy-local                     copy every Space
-  cub server keycloak copy-local --space apps        copy one Space
-  cub server keycloak copy-local --to-context alice  write as this cub context`,
+  cub server keycloak import-local --dry-run           show what would be copied
+  cub server keycloak import-local                     copy every Space
+  cub server keycloak import-local --space apps        copy one Space
+  cub server keycloak import-local --to-context alice  write as this cub context`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ui := install.UI{Out: os.Stdout}
-		if err := install.RunCopyLocal(cmd.Context(), ui, &keycloakCopyOpts); err != nil {
-			fmt.Fprintf(os.Stderr, "\nCopy failed: %v\n", err)
+		if err := install.RunImportLocal(cmd.Context(), ui, &keycloakImportOpts); err != nil {
+			fmt.Fprintf(os.Stderr, "\nImport failed: %v\n", err)
 			return install.ErrReported
 		}
 		return nil
@@ -68,8 +68,8 @@ Examples:
 }
 
 func init() {
-	o := &keycloakCopyOpts
-	f := keycloakCopyCmd.Flags()
+	o := &keycloakImportOpts
+	f := keycloakImportCmd.Flags()
 	f.StringVar(&o.ToContext, "to-context", "", "cub context to write as, logged in to the Keycloak organization (default: the only other context on this server)")
 	f.StringSliceVar(&o.Spaces, "space", nil, "Space to copy, by slug; repeatable (default: every Space)")
 	f.BoolVar(&o.DryRun, "dry-run", false, "Say what would be copied without writing anything")
@@ -82,5 +82,5 @@ func init() {
 	f.StringVar(&o.Instance.ClusterName, "cluster-name", "", "kind cluster the instance is in")
 	f.StringVar(&o.Instance.KubeContext, "kube-context", "", "Kubeconfig context the instance is in")
 
-	keycloakCmd.AddCommand(keycloakCopyCmd)
+	keycloakCmd.AddCommand(keycloakImportCmd)
 }

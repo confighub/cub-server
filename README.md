@@ -145,8 +145,8 @@ context signs in with the administrator key again, rather than through Keycloak.
 ```sh
 cub context create keycloak --server http://localhost:32180 --use
 cub auth login
-cub server keycloak copy-local --dry-run   # see what it would copy
-cub server keycloak copy-local
+cub server keycloak import-local --dry-run   # see what it would copy
+cub server keycloak import-local
 ```
 
 Spaces are copied with their labels and annotations, Units with their current data, and the Links

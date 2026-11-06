@@ -38,8 +38,8 @@ import (
 // it is rather than overwritten, so a Unit someone has since changed in the
 // Keycloak organization keeps their change.
 
-// CopyOptions is what `cub server keycloak copy-local` needs.
-type CopyOptions struct {
+// ImportOptions is what `cub server keycloak import-local` needs.
+type ImportOptions struct {
 	// Instance locates the instance, the same way `keycloak install` does: its
 	// out-dir holds the administrator key's public half and the API's port.
 	Instance Options
@@ -54,16 +54,16 @@ type CopyOptions struct {
 	DryRun bool
 }
 
-// copySource is the external source each copied Unit's data is recorded as
+// importSource is the external source each copied Unit's data is recorded as
 // coming from, which the server shows as its change description.
 //
 // As a source rather than a description because the data endpoint does not
 // keep a description; it records a merge from an external source, by name.
-const copySource = "the Local organization (cub server keycloak copy-local)"
+const importSource = "the Local organization (cub server keycloak import-local)"
 
-// RunCopyLocal copies the Local organization's Spaces, Units and Links into the
+// RunImportLocal copies the Local organization's Spaces, Units and Links into the
 // Keycloak organization.
-func RunCopyLocal(ctx context.Context, u UI, c *CopyOptions) error {
+func RunImportLocal(ctx context.Context, u UI, c *ImportOptions) error {
 	o := &c.Instance
 	if err := o.Defaults(); err != nil {
 		return err
@@ -561,7 +561,7 @@ func copyUnit(ctx context.Context, from, to *cubapi.Client, src *goclientnew.Uni
 		return created, nil
 	}
 
-	source := copySource
+	source := importSource
 	up, err := to.API.UploadUnitDataWithBodyWithResponse(ctx, spaceID, created.UnitID,
 		&goclientnew.UploadUnitDataParams{MergeExternalSource: &source},
 		"application/octet-stream", strings.NewReader(data))

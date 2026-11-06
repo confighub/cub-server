@@ -309,7 +309,7 @@ func reportKeycloak(u UI, o *Options) error {
 		"the administrator key, in turn, does not reach "+k.Org+". Once you have",
 		"signed in with cub as a member of "+k.Org+", copy them over with:",
 		"",
-		"  cub server keycloak copy-local --dry-run",
+		"  cub server keycloak import-local --dry-run",
 		"",
 		"Your administrator key still works, and is now the way back in if Keycloak",
 		"is ever unavailable:",
