@@ -3,6 +3,7 @@ package install
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/confighub/cub-server/internal/config"
@@ -274,10 +275,11 @@ func generateKeycloak(ctx context.Context, u UI, o *Options) ([]config.File, err
 func reportKeycloak(u UI, o *Options) error {
 	k := o.Keycloak
 
-	password, err := secretValue(o.OutDir, "KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD")
-	if err != nil {
-		return err
-	}
+	// Where the admin password is, not the password itself: printed, it would
+	// end up in scrollback, recordings and CI logs, and it is the master realm's
+	// administrator. `keycloak open` puts it on the clipboard instead.
+	passwordFile := filepath.Join(o.OutDir, config.SecretsDir, config.KeycloakSecretFile)
+
 	// The key the instance trusts, by whatever name the install stored it under.
 	_, adminJWK, _, err := readPrior(o.OutDir)
 	if err != nil {
@@ -287,6 +289,9 @@ func reportKeycloak(u UI, o *Options) error {
 	if adminKey == "" {
 		adminKey = "<the administrator key>"
 	}
+	// The commands below are meant to be pasted. Bare, they would act on the
+	// default instance, which need not be this one.
+	flags := o.instanceFlags()
 
 	u.section("Identity provider installed.",
 		"ConfigHub    "+o.UIURL(),
@@ -296,9 +301,13 @@ func reportKeycloak(u UI, o *Options) error {
 		"",
 		"Add people in the Keycloak console, as members of the "+k.Org+" organization:",
 		"",
-		"  "+k.PublicURL+"/admin",
-		"  username   "+k.AdminUser,
-		"  password   "+password,
+		"  cub server keycloak open"+flags,
+		"",
+		"That opens "+k.PublicURL+"/admin with the password for "+k.AdminUser,
+		"on your clipboard. The password is also kept, as",
+		"KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD, in",
+		"",
+		"  "+passwordFile,
 		"",
 		"A user who is not a member of an organization can sign in and will then be",
 		"told their account is pending approval, so the membership is the part that",
@@ -309,7 +318,7 @@ func reportKeycloak(u UI, o *Options) error {
 		"the administrator key, in turn, does not reach "+k.Org+". Once you have",
 		"signed in with cub as a member of "+k.Org+", copy them over with:",
 		"",
-		"  cub server keycloak import-local --dry-run",
+		"  cub server keycloak import-local --dry-run"+flags,
 		"",
 		"Your administrator key still works, and is now the way back in if Keycloak",
 		"is ever unavailable:",
@@ -318,23 +327,6 @@ func reportKeycloak(u UI, o *Options) error {
 		"  cub auth browser-session",
 	)
 	return nil
-}
-
-// secretValue reads one generated value back out of the rendered Secret.
-//
-// Read from the file rather than kept in memory from the render, so that a
-// re-run -- which preserves the value rather than generating it -- reports the
-// password that is actually in effect instead of nothing.
-func secretValue(outDir, key string) (string, error) {
-	prior, _, _, err := readPrior(outDir)
-	if err != nil {
-		return "", err
-	}
-	value, ok := prior[key]
-	if !ok {
-		return "", fmt.Errorf("%s is not in the generated secret", key)
-	}
-	return value, nil
 }
 
 // configureRealmClaims finishes the realm through the admin API, for the parts

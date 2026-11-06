@@ -78,6 +78,49 @@ func (o *Options) adoptRecordedCluster() error {
 	return nil
 }
 
+// instanceFlags are the flags that make a later command act on this instance,
+// with a leading space, or "" for the default instance. Called after Defaults,
+// so every field it reads is settled.
+//
+// The cluster or context is given even beside an out-dir that records it:
+// redundant when the record exists, and the only thing that names the cluster
+// when it does not.
+func (o *Options) instanceFlags() string {
+	var args []string
+	switch {
+	case o.Target == TargetContext && o.KubeContext != "":
+		args = append(args, "--kube-context="+shellArg(o.KubeContext))
+	case o.ClusterName != "" && o.ClusterName != DefaultClusterName:
+		args = append(args, "--cluster-name="+shellArg(o.ClusterName))
+	}
+	if def, err := defaultOutDir(o.instanceName()); err != nil || filepath.Clean(o.OutDir) != filepath.Clean(def) {
+		args = append(args, "--out-dir="+shellArg(o.OutDir))
+	}
+	if o.Namespace != "" && o.Namespace != DefaultNamespace {
+		args = append(args, "--namespace="+shellArg(o.Namespace))
+	}
+	if len(args) == 0 {
+		return ""
+	}
+	return " " + strings.Join(args, " ")
+}
+
+// shellArg quotes s for a POSIX shell when it needs it, so a printed command
+// survives being pasted.
+func shellArg(s string) string {
+	safe := s != ""
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-_./:=@%+,", r)) {
+			safe = false
+			break
+		}
+	}
+	if safe {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // existingCluster points kubectl at the cluster an existing instance is in,
 // refusing to create one.
 //
