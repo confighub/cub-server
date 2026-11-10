@@ -111,6 +111,28 @@ func renderedContainerImage(outDir, deployment, container string) (string, error
 	return "", nil
 }
 
+// renderedMetrics reports whether the rendered server Deployment's pod is
+// annotated for Prometheus to scrape.
+func renderedMetrics(outDir string) (bool, error) {
+	doc, err := renderedObject(outDir, "Deployment", "confighub")
+	if doc == nil || err != nil {
+		return false, err
+	}
+	var dep struct {
+		Spec struct {
+			Template struct {
+				Metadata struct {
+					Annotations map[string]string `yaml:"annotations"`
+				} `yaml:"metadata"`
+			} `yaml:"template"`
+		} `yaml:"spec"`
+	}
+	if err := yaml.Unmarshal(doc, &dep); err != nil {
+		return false, err
+	}
+	return dep.Spec.Template.Metadata.Annotations[config.MetricsScrapeAnnotation] == "true", nil
+}
+
 // renderedNodePort returns a rendered Service's first node port, or zero.
 func renderedNodePort(outDir, service string) int {
 	doc, err := renderedObject(outDir, "Service", service)

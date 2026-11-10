@@ -197,6 +197,12 @@ type Options struct {
 	// UINodePort does the same for the web UI. Zero leaves it ClusterIP.
 	UINodePort int
 
+	// Metrics puts Prometheus's scrape annotations on the server's pod, so a
+	// Prometheus that discovers pods by annotation scrapes /internal/metrics
+	// on the API's port. The server serves it either way; this only says
+	// where. See MetricsAnnotations.
+	Metrics bool
+
 	// ExistingSecret names a Secret the operator provides, which the server
 	// and the bundled database read instead of the one this package renders:
 	// one that External Secrets, or the Secrets Store CSI driver's

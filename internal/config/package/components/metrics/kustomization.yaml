@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+# Prometheus's scrape annotations on the server's pod, for a Prometheus that
+# discovers pods by them. The server serves /internal/metrics on the API's
+# port whether or not they are there; the ingress never routes /internal, so
+# it is scraped from inside the cluster.
+patches:
+  - target:
+      kind: Deployment
+      name: confighub
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: confighub
+      spec:
+        template:
+          metadata:
+            annotations:
+              prometheus.io/scrape: "true"
+              prometheus.io/port: "9090"
+              prometheus.io/path: /internal/metrics

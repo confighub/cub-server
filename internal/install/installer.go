@@ -231,6 +231,11 @@ func installerArgs(opts config.Options, s *config.Surface, pkg, workDir string) 
 	if opts.Ingress == config.IngressTraefik {
 		selected = append(selected, "traefik")
 	}
+	// Only when asked for, so an install without it renders with a package
+	// from before the component existed.
+	if opts.Metrics {
+		selected = append(selected, "metrics")
+	}
 	if len(selected) == 0 {
 		args = append(args, "--components", "minimal")
 	}
