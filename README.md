@@ -422,6 +422,23 @@ refused before anything is applied, with the commands to delete a database that 
 A database you run yourself, such as RDS, needs none of this: `--database=external
 --database-url <url>`.
 
+### Prometheus metrics
+
+The server serves Prometheus metrics at `/internal/metrics` on the API's port, 9090, whether or not
+anything scrapes it. For a Prometheus that discovers pods by the `prometheus.io` annotations, as
+its Kubernetes pod discovery and most charts that install it do, add them to the server's pod:
+
+```sh
+cub server install --kube-context my-cluster --enable-metrics
+```
+
+That sets `prometheus.io/scrape: "true"`, `prometheus.io/port: "9090"` and
+`prometheus.io/path: /internal/metrics`. Scrape from inside the cluster: the Traefik ingress never
+routes `/internal`, which also carries pprof. The OCI registry serves its own metrics on 9092,
+which one set of annotations can't also name. A re-run keeps `--enable-metrics` without being told;
+`--enable-metrics=false` removes the annotations. With `--installer` it needs a package that has
+the `metrics` component, and one published before it was added is refused with what to do instead.
+
 ### Clusters with admission policies
 
 Many clusters run admission webhooks (OPA Gatekeeper, Kyverno) that refuse a namespace without

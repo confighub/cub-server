@@ -128,6 +128,14 @@ spec:
               args: [v1/Service, spec.type, NodePort]
             - name: set-int-path
               args: [v1/Service, "spec.ports.?name=http.nodePort", "{{ .Inputs.keycloak_node_port }}"]
+    - name: metrics
+      path: components/metrics
+      description: |
+        Annotate the server's pod for Prometheus to scrape /internal/metrics
+        on the API's port, 9090, as Prometheus's pod discovery and most charts
+        that install it read the prometheus.io annotations. The server serves
+        the metrics either way, and only inside the cluster: the traefik
+        component does not route /internal.
     - name: traefik
       path: components/traefik
       description: |

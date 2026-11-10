@@ -151,6 +151,22 @@ func renderDatabase(opts Options) ([]byte, error) {
 	return docs.Bytes(), nil
 }
 
+// MetricsScrapeAnnotation is the pod annotation that, with Options.Metrics,
+// marks the server's pod for scraping. A render carrying it is how a re-run
+// knows metrics were asked for.
+const MetricsScrapeAnnotation = "prometheus.io/scrape"
+
+// MetricsAnnotations are the pod annotations Options.Metrics adds: the
+// convention Prometheus's kubernetes_sd pod relabelling, and most charts that
+// install Prometheus, read. They name the API's port, where the server serves
+// /internal/metrics; the OCI registry serves its own on 9092, which one set of
+// these annotations cannot also name.
+var MetricsAnnotations = []struct{ Key, Value string }{
+	{MetricsScrapeAnnotation, "true"},
+	{"prometheus.io/port", "9090"},
+	{"prometheus.io/path", "/internal/metrics"},
+}
+
 func renderDeployment(opts Options, configHash string) ([]byte, error) {
 	docs, err := load("40-deployment.yaml")
 	if err != nil {
@@ -164,6 +180,11 @@ func renderDeployment(opts Options, configHash string) ([]byte, error) {
 		edit{doc: 0, path: "spec.template.spec.initContainers.0.envFrom.1.secretRef.name", value: opts.SecretName()},
 		edit{doc: 0, path: "spec.template.spec.containers.0.envFrom.1.secretRef.name", value: opts.SecretName()},
 	)
+	if opts.Metrics {
+		for _, a := range MetricsAnnotations {
+			edits = append(edits, edit{doc: 0, path: "spec.template.metadata.annotations." + segment(a.Key), value: a.Value, insert: true})
+		}
+	}
 	if err := apply(docs, edits); err != nil {
 		return nil, err
 	}

@@ -16,6 +16,7 @@ The base holds what every install runs:
 | `bundled-postgres` (default) | PostgreSQL in the install namespace, in sync wave -1 so it is up before the server migrates it |
 | `keycloak` | Keycloak in the install namespace, in sync wave -1, so that people sign in as themselves. The realm it imports, and the server's and the UI's settings for it. See [Keycloak](#keycloak) |
 | `nodeport` | NodePorts for the API, the registry, the UI and, with `keycloak`, Keycloak, and `OCI_EXTERNAL_PORT`, so the server advertises the registry where clients reach it, unless `oci_url` says where that is. Conflicts with `traefik` |
+| `metrics` | `prometheus.io/scrape`, `port` (`9090`) and `path` (`/internal/metrics`) annotations on the server's pod, for a Prometheus that discovers pods by them. Scraped from inside the cluster: `traefik` does not route `/internal` |
 | `traefik` | Traefik IngressRoutes for the API on a hostname, redirecting HTTP to HTTPS. Needs Traefik's CRDs |
 
 A render fails validation if:

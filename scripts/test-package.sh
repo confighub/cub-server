@@ -225,6 +225,27 @@ if expect_render traefik bundled-postgres,traefik --select bundled-postgres --se
   expect_equal traefik "the redirect route" "$match" 'Host(`confighub.example.com`)'
 fi
 
+# Annotated for Prometheus: the scrape annotations name the port and path
+# validation/runtime.yaml says the server serves its metrics on, so a release
+# that moves them fails here rather than in somebody's Prometheus.
+scrape() {
+  yq -r ".spec.template.metadata.annotations[\"prometheus.io/$2\"] // \"<unset>\"" "$(manifest "$1" deployment-confighub-confighub.yaml)"
+}
+expect_equal base "prometheus.io/scrape" "$(scrape base scrape)" "<unset>"
+if expect_render metrics bundled-postgres,metrics --select bundled-postgres --select metrics; then
+  runtime="${pkg}/validation/runtime.yaml"
+  expect_equal metrics "prometheus.io/scrape" "$(scrape metrics scrape)" true
+  expect_equal metrics "prometheus.io/port" "$(scrape metrics port)" \
+    "$(yq -r '.Ports[] | select(.Name == "http") | .Default' "$runtime")"
+  path="$(scrape metrics path)"
+  yq -r '.Ports[] | select(.Name == "http") | .Description' "$runtime" | grep -qF -- "${path} (Prometheus)" ||
+    fail "metrics: prometheus.io/path is ${path}, which validation/runtime.yaml doesn't list as the http port's Prometheus path"
+  # The patch merges into the pod's annotations rather than replacing them.
+  expect_equal metrics "the pod's other annotations" \
+    "$(yq -r '.spec.template.metadata.annotations | keys | map(select(test("^prometheus\\.io/") | not)) | join(",")' "$(manifest metrics deployment-confighub-confighub.yaml)")" \
+    "$(yq -r '(.spec.template.metadata.annotations // {}) | keys | join(",")' "$(manifest base deployment-confighub-confighub.yaml)")"
+fi
+
 # With Keycloak, on a local cluster: the server's and the UI's settings for it,
 # its NodePort, and the realm it imports.
 jwks='{"keys":[{"kty":"OKP","crv":"Ed25519","x":"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo","kid":"k1","use":"sig","alg":"EdDSA"}]}'

@@ -14,7 +14,7 @@ import (
 // own. --existing-secret="" is how to.
 func TestRerunKeepsTheExistingSecret(t *testing.T) {
 	dir := t.TempDir()
-	writeStorageRender(t, dir, config.Options{Namespace: "confighub", APINodePort: 32180, ExistingSecret: "from-vault"})
+	writeOptionsRender(t, dir, config.Options{Namespace: "confighub", APINodePort: 32180, ExistingSecret: "from-vault"})
 
 	o := Options{KubeContext: "prod", OutDir: dir}
 	if err := o.Defaults(); err != nil {
@@ -34,7 +34,7 @@ func TestRerunKeepsTheExistingSecret(t *testing.T) {
 
 	// An ordinary render records none.
 	plain := t.TempDir()
-	writeStorageRender(t, plain, config.Options{Namespace: "confighub", APINodePort: 32180})
+	writeOptionsRender(t, plain, config.Options{Namespace: "confighub", APINodePort: 32180})
 	if name, err := recordedExistingSecret(plain); err != nil || name != "" {
 		t.Errorf("an ordinary render records %q, %v", name, err)
 	}

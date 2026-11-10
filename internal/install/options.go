@@ -94,6 +94,13 @@ type Options struct {
 	StorageClass string
 	StorageSize  string
 
+	// Metrics annotates the server's pod for Prometheus to scrape. Kept from
+	// the previous render unless MetricsSet says --enable-metrics was given,
+	// so that --enable-metrics=false turns it off. See
+	// config.Options.Metrics.
+	Metrics    bool
+	MetricsSet bool
+
 	// ExistingSecret names a Secret the operator provides, which the server
 	// reads instead of one install applies. Empty keeps the one a previous run
 	// recorded; ExistingSecretSet says the flag was given, so that
@@ -230,6 +237,9 @@ func (o *Options) Defaults() error {
 	if err := o.adoptRecordedSecret(); err != nil {
 		return err
 	}
+	if err := o.adoptRecordedMetrics(); err != nil {
+		return err
+	}
 	return o.adoptRecordedStorage()
 }
 
@@ -254,6 +264,22 @@ func (o *Options) adoptRecordedStorage() error {
 	if o.StorageSize == "" {
 		o.StorageSize = size
 	}
+	return nil
+}
+
+// adoptRecordedMetrics keeps --enable-metrics from the previous render when the
+// flag is not given, so that a re-run, or 'keycloak install', which render the
+// Deployment again without being told, do not drop the annotations a
+// Prometheus is scraping by.
+func (o *Options) adoptRecordedMetrics() error {
+	if o.MetricsSet {
+		return nil
+	}
+	on, err := renderedMetrics(o.OutDir)
+	if err != nil {
+		return err
+	}
+	o.Metrics = on
 	return nil
 }
 
@@ -355,6 +381,7 @@ func (o *Options) deploymentOptions() config.Options {
 		APINodePort:    o.APINodePort,
 		OCINodePort:    o.OCINodePort,
 		UINodePort:     o.UINodePort,
+		Metrics:        o.Metrics,
 		Keycloak:       o.Keycloak,
 	}
 	opts.Defaults()
