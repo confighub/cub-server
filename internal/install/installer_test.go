@@ -273,6 +273,7 @@ func TestRenderWithInstaller(t *testing.T) {
 		t.Fatal(err)
 	}
 	opts, s := installerOptions(t, true)
+	opts.Metrics = true
 	o := &Options{OutDir: t.TempDir(), Installer: true, InstallerPackage: pkg}
 	files, err := render(ctx, UI{Out: &strings.Builder{}}, o, opts, s)
 	if err != nil {
@@ -310,6 +311,9 @@ func TestRenderWithInstaller(t *testing.T) {
 	}
 	if !hasKeycloak(o.OutDir) {
 		t.Error("the render's Keycloak was not found")
+	}
+	if on, err := renderedMetrics(o.OutDir); err != nil || !on {
+		t.Errorf("the render's metrics annotations read back as %v (%v)", on, err)
 	}
 	settings, err := renderedConfigMapData(o.OutDir, serverConfigMap)
 	if err != nil {

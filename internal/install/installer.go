@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -335,7 +336,11 @@ func renderWithInstaller(ctx context.Context, u UI, o *Options, opts config.Opti
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("installer setup: %w\n%s", err, strings.TrimSpace(buf.String()))
+		err = fmt.Errorf("installer setup: %w\n%s", err, strings.TrimSpace(buf.String()))
+		if opts.Metrics {
+			err = fmt.Errorf("%w\n%s", err, metricsPackageHint(pkg))
+		}
+		return nil, err
 	}
 
 	paths, err := filepath.Glob(filepath.Join(work, "out", "manifests", "*.yaml"))
@@ -354,6 +359,9 @@ func renderWithInstaller(ctx context.Context, u UI, o *Options, opts config.Opti
 	if len(files) == 0 {
 		return nil, fmt.Errorf("installer setup rendered nothing into %s", filepath.Join(work, "out", "manifests"))
 	}
+	if err := checkMetricsRendered(opts, files, pkg); err != nil {
+		return nil, err
+	}
 	u.detail("rendered %d manifests from %s with installer %s", len(files), pkg, version)
 
 	files, err = applyNamespaceSettings(ctx, o, files)
@@ -368,6 +376,40 @@ func renderWithInstaller(ctx context.Context, u UI, o *Options, opts config.Opti
 			o.Namespace, len(o.NamespaceLabels), len(o.NamespaceAnnotations))
 	}
 	return files, nil
+}
+
+// checkMetricsRendered refuses a render that was asked for metrics and does not
+// annotate the server's pod for them: one from a package published before the
+// metrics component existed. Applying it would install without the
+// annotations, and the next run, which reads the setting back from the
+// render, would forget it was ever asked for.
+func checkMetricsRendered(opts config.Options, files []config.File, pkg string) error {
+	if !opts.Metrics {
+		return nil
+	}
+	for _, f := range files {
+		doc := objectIn(f.Content, "Deployment", serverDeploymentName)
+		if doc == nil {
+			continue
+		}
+		on, err := metricsIn(doc)
+		if err != nil {
+			return fmt.Errorf("reading the rendered %s Deployment: %w", serverDeploymentName, err)
+		}
+		if on {
+			return nil
+		}
+		break
+	}
+	return errors.New(metricsPackageHint(pkg))
+}
+
+// metricsPackageHint says why a package did not render --enable-metrics, and
+// what to do instead.
+func metricsPackageHint(pkg string) string {
+	return fmt.Sprintf("--enable-metrics needs the installer package's metrics component, which %s does not render: "+
+		"packages published before it was added lack it. Drop --installer to render with this plugin's manifests, "+
+		"or pass --installer-package to name one that has it", pkg)
 }
 
 // configDigests digests the configuration each Deployment reads, from the

@@ -129,7 +129,7 @@ func init() {
 	f.StringVar(&installOpts.ExistingSecret, "existing-secret", "", "Secret the server reads its secrets from, which you provide (with External Secrets or the Secrets Store CSI driver) and install never applies; the values install generates are written to the out-dir for your secret store (default: the one a previous run recorded, else install applies "+config.DefaultSecretName+" itself)")
 	f.StringVar(&installOpts.StorageSize, "storage-size", "", "Size of the bundled database's volume, such as 20Gi (default: the one a previous run recorded, else "+config.DefaultStorageSize+")")
 
-	f.BoolVar(&installOpts.Metrics, "enable-metrics", false, "Annotate the server's pod (prometheus.io/scrape, port 9090, path /internal/metrics) for a Prometheus that discovers pods by annotation; false removes them (default: what a previous run recorded, else false)")
+	f.BoolVar(&installOpts.Metrics, "enable-metrics", false, "Annotate the server's pod (prometheus.io/scrape, port 9090, path /internal/metrics) for a Prometheus that discovers pods by annotation; false removes them. With --installer, needs a package that has the metrics component, which those published before it lack (default: what a previous run recorded, else false)")
 
 	f.IntVar(&installOpts.APINodePort, "node-port", 0, fmt.Sprintf("Host port the API answers on (default %d)", install.DefaultAPINodePort))
 	f.IntVar(&installOpts.UINodePort, "ui-node-port", 0, fmt.Sprintf("Host port the web UI answers on (default %d)", install.DefaultUINodePort))

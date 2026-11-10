@@ -2,6 +2,7 @@ package install
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/confighub/cub-server/internal/config"
@@ -33,7 +34,7 @@ func TestInstallerArgsWithMetrics(t *testing.T) {
 // without the flag keeps the annotations; --enable-metrics=false drops them.
 func TestRerunKeepsMetrics(t *testing.T) {
 	dir := t.TempDir()
-	writeStorageRender(t, dir, config.Options{Namespace: "confighub", APINodePort: 32180, Metrics: true})
+	writeOptionsRender(t, dir, config.Options{Namespace: "confighub", APINodePort: 32180, Metrics: true})
 
 	o := Options{KubeContext: "prod", OutDir: dir}
 	if err := o.Defaults(); err != nil {
@@ -52,12 +53,41 @@ func TestRerunKeepsMetrics(t *testing.T) {
 	}
 
 	plain := t.TempDir()
-	writeStorageRender(t, plain, config.Options{Namespace: "confighub", APINodePort: 32180})
+	writeOptionsRender(t, plain, config.Options{Namespace: "confighub", APINodePort: 32180})
 	o = Options{KubeContext: "prod", OutDir: plain}
 	if err := o.Defaults(); err != nil {
 		t.Fatal(err)
 	}
 	if o.Metrics {
 		t.Error("a re-run of an install without metrics turned them on")
+	}
+}
+
+// A render asked for metrics that does not carry them, as from a package
+// published before the metrics component, is refused, naming the way out;
+// one that carries them, or was not asked for them, passes.
+func TestCheckMetricsRendered(t *testing.T) {
+	deployment := func(annotations string) []config.File {
+		return []config.File{{Path: config.ConfigDir + "/deployment-confighub-confighub.yaml", Content: []byte(
+			"apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: confighub\nspec:\n  template:\n    metadata:\n" + annotations,
+		)}}
+	}
+	annotated := deployment("      annotations:\n        prometheus.io/scrape: \"true\"\n")
+	plain := deployment("      labels:\n        app: confighub\n")
+
+	if err := checkMetricsRendered(config.Options{Metrics: true}, annotated, "/pkg"); err != nil {
+		t.Errorf("refused an annotated render: %v", err)
+	}
+	if err := checkMetricsRendered(config.Options{}, plain, "/pkg"); err != nil {
+		t.Errorf("refused a render not asked for metrics: %v", err)
+	}
+	err := checkMetricsRendered(config.Options{Metrics: true}, plain, "oci://ghcr.io/confighub/packages/confighub:0.10.4")
+	if err == nil {
+		t.Fatal("accepted a render asked for metrics that has none")
+	}
+	for _, want := range []string{"confighub:0.10.4", "Drop --installer", "--installer-package"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not say %q: %v", want, err)
+		}
 	}
 }

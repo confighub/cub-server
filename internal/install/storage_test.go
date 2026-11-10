@@ -13,9 +13,9 @@ import (
 	"github.com/confighub/cub-server/internal/config"
 )
 
-// writeRender renders an instance with these options into dir, as an install
+// writeOptionsRender renders an instance with these options into dir, as an install
 // would leave it.
-func writeStorageRender(t *testing.T, dir string, opts config.Options) {
+func writeOptionsRender(t *testing.T, dir string, opts config.Options) {
 	t.Helper()
 	opts.Image = "ghcr.io/confighubai/confighub:test"
 	opts.UIImage = "ghcr.io/confighub/ui:test"
@@ -45,7 +45,7 @@ func writeStorageRender(t *testing.T, dir string, opts config.Options) {
 // template that changed.
 func TestRerunKeepsTheDatabaseStorage(t *testing.T) {
 	dir := t.TempDir()
-	writeStorageRender(t, dir, config.Options{Namespace: "confighub", APINodePort: 32180, StorageClass: "auto-gp3", StorageSize: "20Gi"})
+	writeOptionsRender(t, dir, config.Options{Namespace: "confighub", APINodePort: 32180, StorageClass: "auto-gp3", StorageSize: "20Gi"})
 
 	o := Options{KubeContext: "prod", OutDir: dir}
 	if err := o.Defaults(); err != nil {
@@ -70,7 +70,7 @@ func TestRerunKeepsTheDatabaseStorage(t *testing.T) {
 
 	// An install that named none keeps naming none.
 	plain := t.TempDir()
-	writeStorageRender(t, plain, config.Options{Namespace: "confighub", APINodePort: 32180})
+	writeOptionsRender(t, plain, config.Options{Namespace: "confighub", APINodePort: 32180})
 	o = Options{KubeContext: "prod", OutDir: plain}
 	if err := o.Defaults(); err != nil {
 		t.Fatal(err)
@@ -84,7 +84,7 @@ func TestRerunKeepsTheDatabaseStorage(t *testing.T) {
 // than refusing it as a flag that does not apply.
 func TestExternalDatabaseDropsTheRecordedStorage(t *testing.T) {
 	dir := t.TempDir()
-	writeStorageRender(t, dir, config.Options{Namespace: "confighub", APINodePort: 32180, StorageClass: "auto-gp3"})
+	writeOptionsRender(t, dir, config.Options{Namespace: "confighub", APINodePort: 32180, StorageClass: "auto-gp3"})
 
 	o := Options{KubeContext: "prod", OutDir: dir, Database: "external", DatabaseURL: "postgresql://db.example.com/confighub", APINodePort: 32180}
 	if err := o.Defaults(); err != nil {
@@ -182,7 +182,7 @@ func TestInterviewSkipsTheStorageClass(t *testing.T) {
 
 	// A re-run keeps the class its previous render names.
 	o = contextInterviewOptions(t)
-	writeStorageRender(t, o.OutDir, config.Options{Namespace: "confighub", APINodePort: 32180, StorageClass: "gp3"})
+	writeOptionsRender(t, o.OutDir, config.Options{Namespace: "confighub", APINodePort: 32180, StorageClass: "gp3"})
 	if err := interview(strings.NewReader(""), &strings.Builder{}, &o, c.connect); err != nil {
 		t.Fatal(err)
 	}

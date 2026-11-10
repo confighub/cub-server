@@ -114,10 +114,16 @@ func renderedContainerImage(outDir, deployment, container string) (string, error
 // renderedMetrics reports whether the rendered server Deployment's pod is
 // annotated for Prometheus to scrape.
 func renderedMetrics(outDir string) (bool, error) {
-	doc, err := renderedObject(outDir, "Deployment", "confighub")
+	doc, err := renderedObject(outDir, "Deployment", serverDeploymentName)
 	if doc == nil || err != nil {
 		return false, err
 	}
+	return metricsIn(doc)
+}
+
+// metricsIn reports whether a Deployment's pod is annotated for Prometheus to
+// scrape.
+func metricsIn(deployment []byte) (bool, error) {
 	var dep struct {
 		Spec struct {
 			Template struct {
@@ -127,7 +133,7 @@ func renderedMetrics(outDir string) (bool, error) {
 			} `yaml:"template"`
 		} `yaml:"spec"`
 	}
-	if err := yaml.Unmarshal(doc, &dep); err != nil {
+	if err := yaml.Unmarshal(deployment, &dep); err != nil {
 		return false, err
 	}
 	return dep.Spec.Template.Metadata.Annotations[config.MetricsScrapeAnnotation] == "true", nil
