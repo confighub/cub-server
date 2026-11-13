@@ -179,6 +179,14 @@ func Build(opts Options, prior Preserved) (*Surface, error) {
 		Doc: "Where the browser reaches the web UI. Advertised in /api/info so clients can link to it.",
 	})
 
+	// Quotas. The server counts every Organization's entities but refuses one
+	// past its quota only when told to, and an instance installed here enforces
+	// them as the hosted one does.
+	add(Var{
+		Name: "CONFIGHUB_QUOTA_ENABLED", Placement: InConfigMap, Value: "true",
+		Doc: "Refuse to create an entity past its Organization's quota for that type. The counts are kept either way.",
+	})
+
 	// The bundled identity provider, when there is one. Absent entirely on an
 	// instance whose only identity is the administrator's key: the server treats
 	// a realm, auth URL and redirect URI as all-or-nothing, and half of them is

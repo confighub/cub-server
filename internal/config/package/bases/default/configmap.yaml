@@ -13,6 +13,11 @@ data:
   # startup. Not secret: the private half never reaches the cluster. The
   # installer's admin_jwk input.
   CONFIGHUB_LOCAL_ADMIN_JWK: confighubplaceholder
+  # Refuse to create an entity that would take its Organization's count of
+  # that type past its quota, as the hosted ConfigHub does. The server counts
+  # entities either way, so turning it back on after a time off enforces them
+  # against everything that exists by then.
+  CONFIGHUB_QUOTA_ENABLED: "true"
   # Where clients, such as Argo CD in another cluster, reach the OCI registry,
   # like https://oci.example.com. The server advertises it in /api/info, and
   # the registry's token realm follows it. Empty, which the server reads as
