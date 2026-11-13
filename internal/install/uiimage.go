@@ -20,7 +20,11 @@ const uiDeploymentName = "confighub-ui"
 
 // minimumServerVersion is the oldest server this plugin installs.
 //
-// v0.10.1 finished removing workers: v0.10.0 removed them and WORKER_MASTER_SECRET
+// v0.11.2 is the first release whose UI image writes only to /tmp, which lets
+// the UI container run with the read-only root filesystem rendered here; an
+// older UI fails to start without a writable root.
+//
+// Before that, v0.10.1 finished removing workers: v0.10.0 removed them and WORKER_MASTER_SECRET
 // with them, and v0.10.1 dropped their tables. This plugin no longer generates that
 // secret, which a server before v0.10.0 needs to key worker credentials.
 //
@@ -35,7 +39,7 @@ const uiDeploymentName = "confighub-ui"
 // and no longer needs a cookie-login redirect, and whose UI is published as its
 // own image. An older server with this configuration would refuse to start or
 // have no UI to go with it.
-var minimumServerVersion = [3]int{0, 10, 1}
+var minimumServerVersion = [3]int{0, 11, 2}
 
 // serverVersion reads vMAJOR.MINOR.PATCH from an image reference, or reports
 // false for any other tag -- a local build, a digest, a branch image.
@@ -80,8 +84,9 @@ func requireSupportedServer(image string) error {
 	repo := image[:strings.LastIndex(image, ":")]
 	min := fmt.Sprintf("v%d.%d.%d", minimumServerVersion[0], minimumServerVersion[1], minimumServerVersion[2])
 	return fmt.Errorf(
-		"%s is older than %s, the first server this plugin can install: %s finished removing workers, and this plugin no longer generates their secret.\n"+
-			"    Install a newer one with: cub server install --image %s:<version>",
+		"%s is older than %s, the first server this plugin can install: before %s, the UI needs a writable root filesystem, which this plugin no longer gives it.\n"+
+			"    Install a newer one with: cub server install --image %s:<version>\n"+
+			"    To move an instance already running an older server, upgrade it first: cub server upgrade --apply",
 		tag, min, min, repo)
 }
 

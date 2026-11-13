@@ -39,7 +39,7 @@ spec:
         fsGroup: 2000
       containers:
       - name: ui
-        image: ghcr.io/confighub/ui:v0.10.4
+        image: ghcr.io/confighub/ui:v0.11.2
         imagePullPolicy: IfNotPresent
         terminationMessagePolicy: FallbackToLogsOnError
         envFrom:
@@ -57,12 +57,19 @@ spec:
           requests:
             cpu: 10m
             memory: 32Mi
-        # The root filesystem stays writable: the entrypoint writes
-        # /config.json into the directory nginx serves.
+        # The image writes only to /tmp: the entrypoint's /config.json, which
+        # nginx serves from there, and nginx's temp files.
         securityContext:
+          readOnlyRootFilesystem: true
           runAsNonRoot: true
           allowPrivilegeEscalation: false
           privileged: false
           capabilities:
             drop:
             - ALL
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}

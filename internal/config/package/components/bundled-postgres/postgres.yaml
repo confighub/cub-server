@@ -39,7 +39,10 @@ spec:
       containers:
       - name: postgres
         image: postgres:17-alpine
+        # Postgres writes only to its data directory and to /var/run/postgresql,
+        # where it keeps its socket and lock file.
         securityContext:
+          readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
           capabilities:
             drop:
@@ -64,6 +67,11 @@ spec:
         volumeMounts:
         - name: data
           mountPath: /var/lib/postgresql/data
+        - name: run
+          mountPath: /var/run/postgresql
+      volumes:
+      - name: run
+        emptyDir: {}
   volumeClaimTemplates:
   - metadata:
       name: data

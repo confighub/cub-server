@@ -35,7 +35,7 @@ spec:
       # `db init` and `db migrate` in sequence did the same thing and paid for
       # a second image start to do it.
       - name: confighub-db-init-and-migrate
-        image: ghcr.io/confighubai/confighub:v0.10.4
+        image: ghcr.io/confighubai/confighub:v0.11.2
         command:
         - /srv/app/confighub
         args:
@@ -60,7 +60,7 @@ spec:
             memory: 128Mi
       containers:
       - name: confighub
-        image: ghcr.io/confighubai/confighub:v0.10.4
+        image: ghcr.io/confighubai/confighub:v0.11.2
         # Not a restated default: it is the default only for a tagged image. A
         # tag Kubernetes treats as floating flips it to Always, which fails on a
         # cluster where the image was side-loaded rather than pushed.
