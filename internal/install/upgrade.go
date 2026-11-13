@@ -115,7 +115,7 @@ func RunUpgrade(ctx context.Context, u UI, o *UpgradeOptions) error {
 	}
 	targetVersion, _, ok := serverVersion("x:" + target)
 	if !ok {
-		return fmt.Errorf("--version %q is not a release version like v0.10.1", o.Version)
+		return fmt.Errorf("--version %q is not a release version like v0.11.2", o.Version)
 	}
 	if olderThan(targetVersion, minimumServerVersion) {
 		return fmt.Errorf("%s is older than v%d.%d.%d, the oldest server this plugin supports", target,

@@ -35,7 +35,7 @@ read, and where each is set, for you to remove. It changes none of them.
 
 Examples:
   cub server upgrade                                     plan the newest release, change nothing
-  cub server upgrade --version v0.10.1 --apply           upgrade the instance now
+  cub server upgrade --version v0.11.2 --apply           upgrade the instance now
   cub server upgrade --kube-context prod --namespace confighub --out-dir ./upgrade`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {

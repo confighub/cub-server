@@ -291,12 +291,18 @@ The version it resolved is written into the generated manifests, not a floating 
 running is answerable, and two people installing at the same moment get the same thing.
 
 ```sh
-cub server install --image ghcr.io/confighubai/confighub:v0.10.1   # pick one
+cub server install --image ghcr.io/confighubai/confighub:v0.11.2   # pick one
 ```
 
-The UI is released with the server under the same version and follows it: server `v0.10.1` gets
-`ghcr.io/confighub/ui:v0.10.1`. `--ui-image` names a different one, and is required when `--image`
-is not a released version. The oldest server this plugin installs is v0.10.1, the release that finished removing workers, so this plugin no longer generates `WORKER_MASTER_SECRET`.
+The UI is released with the server under the same version and follows it: server `v0.11.2` gets
+`ghcr.io/confighub/ui:v0.11.2`. `--ui-image` names a different one, and is required when `--image`
+is not a released version.
+
+The oldest server this plugin installs is v0.11.2, the first release whose UI image writes only to
+`/tmp`. The plugin runs the UI, like the server and Postgres, with a read-only root filesystem, and
+an older UI does not start that way. Re-running `install` on an instance older than that is refused
+too: move it with `cub server upgrade` first, which changes only the images and so works from any
+version.
 
 Re-running an install keeps the version the instance is already on; it resumes rather than
 upgrading. Pass `--image` to move it, which is also how you install without reaching the
@@ -321,7 +327,7 @@ and pulls it from the registry named. Postgres (`postgres:17-alpine`) and Keyclo
 
 ```sh
 cub server upgrade                          # plan the newest release; changes nothing
-cub server upgrade --version v0.10.1 --apply # upgrade the running instance
+cub server upgrade --version v0.11.2 --apply # upgrade the running instance
 ```
 
 `upgrade` reads the instance from the cluster (`--kube-context`, `--kubeconfig`, `--namespace`),
