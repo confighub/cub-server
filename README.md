@@ -61,12 +61,8 @@ cub server keycloak install
 
 With `--installer`, the manifests are rendered by ConfigHub's
 [installer](https://github.com/confighub/installer), from ConfigHub's installer package
-(`internal/config/package`), instead of from the plugin's own manifests. It needs the installer's
-cub plugin, 0.3.4 or later:
-
-```sh
-cub plugin install confighub/installer
-```
+(`internal/config/package`), instead of from the plugin's own manifests. The plugin links the
+installer, so nothing else needs installing.
 
 The package is pulled from `ghcr.io/confighub/packages/confighub`, or, with `--registry` naming a
 mirror, from `<prefix>/packages/confighub`; it is not copied to gcr.io, so `--registry gcr` takes it

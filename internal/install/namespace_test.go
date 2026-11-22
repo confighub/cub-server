@@ -640,3 +640,14 @@ func TestInterviewOffersTheRecordedNamespace(t *testing.T) {
 		t.Errorf("labels set %v; the recorded ones were not listed:\n%s", o.NamespaceLabelsSet, out.String())
 	}
 }
+
+// flagValues returns the values of every occurrence of flag in args.
+func flagValues(args []string, flag string) []string {
+	var out []string
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == flag {
+			out = append(out, args[i+1])
+		}
+	}
+	return out
+}

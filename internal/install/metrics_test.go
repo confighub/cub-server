@@ -10,23 +10,23 @@ import (
 
 // The installer selects the metrics component only when asked, so an install
 // without it renders with a package from before the component existed.
-func TestInstallerArgsWithMetrics(t *testing.T) {
+func TestInstallerSetupWithMetrics(t *testing.T) {
 	opts, s := installerOptions(t, false)
-	args, err := installerArgs(opts, s, "/pkg", "/work")
+	setup, err := installerSetup(opts, s, "/pkg", "/work")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if slices.Contains(flagValues(args, "--select"), "metrics") {
-		t.Errorf("selected metrics without being asked: %v", args)
+	if slices.Contains(setup.Select, "metrics") {
+		t.Errorf("selected metrics without being asked: %v", setup.Select)
 	}
 
 	opts.Metrics = true
-	args, err = installerArgs(opts, s, "/pkg", "/work")
+	setup, err = installerSetup(opts, s, "/pkg", "/work")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(flagValues(args, "--select"), "metrics") {
-		t.Errorf("--enable-metrics did not select metrics: %v", args)
+	if !slices.Contains(setup.Select, "metrics") {
+		t.Errorf("--enable-metrics did not select metrics: %v", setup.Select)
 	}
 }
 

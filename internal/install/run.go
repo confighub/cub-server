@@ -126,11 +126,6 @@ func preflight(ctx context.Context, u UI, o *Options) error {
 		if err := validateForInstaller(o.deploymentOptions()); err != nil {
 			return err
 		}
-		_, version, err := installerBinary(ctx)
-		if err != nil {
-			return err
-		}
-		u.detail("installer: %s", version)
 		if o.customizesNamespace() && !o.InstallerSet && o.InstallerPackage == "" {
 			u.detail("rendering with the installer, which the namespace's settings need%s", rendererSwitch(o.OutDir))
 		}

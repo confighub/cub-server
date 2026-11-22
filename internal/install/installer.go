@@ -8,15 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/confighub/sdk/core/cubapi"
-	coreplugin "github.com/confighub/sdk/core/plugin"
+	"github.com/confighub/installer/pkg/installer"
 
 	"github.com/confighub/cub-server/internal/config"
 )
@@ -25,7 +23,7 @@ import (
 //
 // With --installer, the manifests come from ConfigHub's installer package,
 // pulled from the registry the server image comes from and rendered by the
-// installer, instead of from this plugin's own manifests. Everything around the
+// installer, which this plugin links, instead of from its own manifests. Everything around the
 // render stays this plugin's: it still resolves the images and ports, generates
 // the keys, the passwords and the Secrets -- which the package leaves out -- and
 // applies, waits and signs in. What the installer renders is passed to it as the
@@ -48,86 +46,6 @@ func renderedWithInstaller(outDir string) bool {
 // Namespace's sync wave: before Postgres and Keycloak, which read them as they
 // start.
 const secretSyncWave = "-2"
-
-// minimumInstallerVersion is the first installer that takes a JSON --input whole
-// and applies --set-image to a component's images, both of which this relies on.
-var minimumInstallerVersion = [3]int{0, 3, 4}
-
-const (
-	// installerCommand is the cub plugin command that runs the installer, as
-	// `cub installer`.
-	installerCommand = "installer"
-	// installerInstall is how to get it.
-	installerInstall = "cub plugin install confighub/installer"
-	// installerUpgrade is how to get a newer one.
-	installerUpgrade = "cub plugin upgrade installer"
-)
-
-// installerBinary finds the installer and returns its path and version: the
-// entrypoint of the cub plugin that provides `cub installer`, or $INSTALLER,
-// which names a build of it directly.
-//
-// The plugin's entrypoint is run rather than `cub installer`, because cub
-// hands a plugin the caller's context, and a render has to stay away from it
-// (see renderWithInstaller). An installer found on PATH is never used: on macOS
-// that is Apple's package installer.
-func installerBinary(ctx context.Context) (string, string, error) {
-	name := os.Getenv("INSTALLER")
-	if name == "" {
-		path, err := installerPlugin()
-		if err != nil {
-			return "", "", err
-		}
-		name = path
-	}
-	out, err := run(ctx, name, "version")
-	version, ok := strings.CutPrefix(strings.TrimSpace(out), "installer ")
-	if err != nil || !ok {
-		return "", "", fmt.Errorf("%s is not ConfigHub's installer.\n"+
-			"    Install it with: %s", name, installerInstall)
-	}
-	// A build from source reports "dev", and is taken to be current.
-	if parsed, ok := parseInstallerVersion(version); ok && olderThan(parsed, minimumInstallerVersion) {
-		return "", "", fmt.Errorf("%s is installer %s; --installer needs %d.%d.%d or later.\n"+
-			"    Upgrade it with: %s",
-			name, version, minimumInstallerVersion[0], minimumInstallerVersion[1], minimumInstallerVersion[2], installerUpgrade)
-	}
-	return name, version, nil
-}
-
-// installerPlugin finds the entrypoint of the installed cub plugin that provides
-// `cub installer`, the way cub does: in the plugins directory of the cub
-// configuration, in plugin name order.
-func installerPlugin() (string, error) {
-	configDir, err := cubapi.DefaultConfigDir()
-	if err != nil {
-		return "", err
-	}
-	plugins := filepath.Join(configDir, "plugins")
-	entries, _ := os.ReadDir(plugins)
-	for _, entry := range entries {
-		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
-		dir := filepath.Join(plugins, entry.Name())
-		m, err := coreplugin.Read(dir)
-		if err != nil || m == nil {
-			continue
-		}
-		for _, c := range m.Commands {
-			if c.Name != installerCommand && !slices.Contains(c.Aliases, installerCommand) {
-				continue
-			}
-			entrypoint := c.Entrypoint
-			if entrypoint == "" {
-				entrypoint = "main"
-			}
-			return filepath.Join(dir, entrypoint), nil
-		}
-	}
-	return "", fmt.Errorf("--installer needs ConfigHub's installer, which is not installed as a cub plugin.\n"+
-		"    Install it with: %s", installerInstall)
-}
 
 // installerPackage is the package to render: --installer-package when given,
 // otherwise the newest version of ConfigHub's package that is not newer than
@@ -213,11 +131,18 @@ func validateForInstaller(opts config.Options) error {
 	return nil
 }
 
-// installerArgs is the `installer setup` invocation that renders this instance:
-// the components its options select and the package's inputs from its resolved
+// installerSetup is the installer setup that renders this instance: the
+// components its options select and the package's inputs from its resolved
 // configuration.
-func installerArgs(opts config.Options, s *config.Surface, pkg, workDir string) ([]string, error) {
-	args := []string{"setup", "--pull", pkg, "--work-dir", workDir, "--non-interactive", "--namespace", opts.Namespace}
+func installerSetup(opts config.Options, s *config.Surface, pkg, workDir string) (installer.SetupOptions, error) {
+	setup := installer.SetupOptions{
+		WorkDir:   workDir,
+		Pull:      pkg,
+		Namespace: opts.Namespace,
+		Inputs:    map[string]string{},
+		SetImage:  map[string]string{},
+		Render:    true,
+	}
 
 	var selected []string
 	if opts.Database == config.DatabaseInternal {
@@ -238,15 +163,13 @@ func installerArgs(opts config.Options, s *config.Surface, pkg, workDir string) 
 		selected = append(selected, "metrics")
 	}
 	if len(selected) == 0 {
-		args = append(args, "--components", "minimal")
+		setup.Preset = "minimal"
 	}
-	for _, c := range selected {
-		args = append(args, "--select", c)
-	}
+	setup.Select = selected
 
 	input := func(name, value string) {
 		if value != "" {
-			args = append(args, "--input", name+"="+value)
+			setup.Inputs[name] = value
 		}
 	}
 	port := func(name string, p int) {
@@ -277,7 +200,7 @@ func installerArgs(opts config.Options, s *config.Surface, pkg, workDir string) 
 
 	image := func(name, ref string) {
 		if ref != "" {
-			args = append(args, "--set-image", name+"="+ref)
+			setup.SetImage[name] = ref
 		}
 	}
 	image("ghcr.io/confighubai/confighub", opts.Image)
@@ -291,7 +214,7 @@ func installerArgs(opts config.Options, s *config.Surface, pkg, workDir string) 
 		// Keycloak imports with the realm.
 		jwks, err := config.ClientJWKS(s.Get(config.KeycloakClientKeyEnv))
 		if err != nil {
-			return nil, err
+			return installer.SetupOptions{}, err
 		}
 		input("keycloak_url", strings.TrimSuffix(k.PublicURL, "/"))
 		input("keycloak_client_jwks", jwks)
@@ -300,53 +223,52 @@ func installerArgs(opts config.Options, s *config.Surface, pkg, workDir string) 
 		input("keycloak_ssl_required", k.SSLRequired)
 		image("quay.io/keycloak/keycloak", k.Image)
 	}
-	return args, nil
+	return setup, nil
 }
 
 // renderWithInstaller renders the instance's manifests with the installer, and
 // returns them as files of its config directory. The Secrets are rendered by
 // the caller.
 func renderWithInstaller(ctx context.Context, u UI, o *Options, opts config.Options, s *config.Surface) ([]config.File, error) {
-	bin, version, err := installerBinary(ctx)
-	if err != nil {
-		return nil, err
-	}
 	pkg, err := installerPackage(ctx, o, opts.Image)
 	if err != nil {
 		return nil, err
 	}
-	work := installerDir(o.OutDir)
-	args, err := installerArgs(opts, s, pkg, work)
+	setup, err := installerSetup(opts, s, pkg, installerDir(o.OutDir))
 	if err != nil {
 		return nil, err
 	}
 
-	// An empty cub configuration, so that rendering never reaches whichever
-	// ConfigHub cub is pointed at: the installer otherwise looks there for an
-	// earlier install of the package when its work directory has none.
-	cubConfig, err := os.MkdirTemp("", "cub-server-installer-")
+	// The installer's own settings still apply: the signing policy it enforces
+	// on what it pulls, and the cosign binary that checks it.
+	policy, err := installer.LoadSigningPolicy(os.Getenv("INSTALLER_SIGNING_POLICY"))
 	if err != nil {
 		return nil, err
 	}
-	defer os.RemoveAll(cubConfig)
-
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Env = append(cubEnv(), "CUB_CONFIG="+cubConfig)
-	var buf bytes.Buffer
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
-	if err := cmd.Run(); err != nil {
-		err = fmt.Errorf("installer setup: %w\n%s", err, strings.TrimSpace(buf.String()))
+	// No ConfigHub client, so that rendering never reaches whichever ConfigHub
+	// cub is pointed at: the installer would otherwise look there for an
+	// earlier install of the package when its work directory has none. Its
+	// output is shown only when it fails.
+	var log bytes.Buffer
+	inst, err := installer.New(installer.Options{
+		Out:           &log,
+		ErrOut:        &log,
+		SigningPolicy: policy,
+		CosignBinary:  os.Getenv("INSTALLER_COSIGN_BIN"),
+	})
+	if err != nil {
+		return nil, err
+	}
+	res, err := inst.Setup(ctx, setup)
+	if err != nil {
+		err = fmt.Errorf("installer setup: %w\n%s", err, strings.TrimSpace(log.String()))
 		if opts.Metrics {
 			err = fmt.Errorf("%w\n%s", err, metricsPackageHint(pkg))
 		}
 		return nil, err
 	}
 
-	paths, err := filepath.Glob(filepath.Join(work, "out", "manifests", "*.yaml"))
-	if err != nil {
-		return nil, err
-	}
+	paths := slices.Clone(res.Render.Manifests)
 	sort.Strings(paths)
 	files := make([]config.File, 0, len(paths))
 	for _, p := range paths {
@@ -357,12 +279,12 @@ func renderWithInstaller(ctx context.Context, u UI, o *Options, opts config.Opti
 		files = append(files, config.File{Path: config.ConfigDir + "/" + filepath.Base(p), Content: content})
 	}
 	if len(files) == 0 {
-		return nil, fmt.Errorf("installer setup rendered nothing into %s", filepath.Join(work, "out", "manifests"))
+		return nil, fmt.Errorf("installer setup rendered nothing from %s", pkg)
 	}
 	if err := checkMetricsRendered(opts, files, pkg); err != nil {
 		return nil, err
 	}
-	u.detail("rendered %d manifests from %s with installer %s", len(files), pkg, version)
+	u.detail("rendered %d manifests from %s", len(files), pkg)
 
 	files, err = applyNamespaceSettings(ctx, o, files)
 	if err != nil {

@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -101,27 +100,26 @@ func TestExternalDatabaseDropsTheRecordedStorage(t *testing.T) {
 // The package gets the class and size as inputs, and only when they say
 // something, so a render that names neither works with a package from before
 // they existed.
-func TestInstallerArgsWithStorage(t *testing.T) {
+func TestInstallerSetupWithStorage(t *testing.T) {
 	opts, s := installerOptions(t, false)
-	args, err := installerArgs(opts, s, "/pkg", "/work")
+	setup, err := installerSetup(opts, s, "/pkg", "/work")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, input := range flagValues(args, "--input") {
-		if strings.HasPrefix(input, "storage_") {
-			t.Errorf("passed %s with no storage flags", input)
+	for name := range setup.Inputs {
+		if strings.HasPrefix(name, "storage_") {
+			t.Errorf("passed %s with no storage flags", name)
 		}
 	}
 
 	opts.StorageClass, opts.StorageSize = "auto-gp3", "20Gi"
-	args, err = installerArgs(opts, s, "/pkg", "/work")
+	setup, err = installerSetup(opts, s, "/pkg", "/work")
 	if err != nil {
 		t.Fatal(err)
 	}
-	inputs := flagValues(args, "--input")
-	for _, want := range []string{"storage_class=auto-gp3", "storage_size=20Gi"} {
-		if !slices.Contains(inputs, want) {
-			t.Errorf("no --input %s in %v", want, args)
+	for name, want := range map[string]string{"storage_class": "auto-gp3", "storage_size": "20Gi"} {
+		if got := setup.Inputs[name]; got != want {
+			t.Errorf("input %s = %q, want %q", name, got, want)
 		}
 	}
 }

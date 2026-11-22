@@ -2,13 +2,10 @@ package install
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
-
-	coreplugin "github.com/confighub/sdk/core/plugin"
 
 	"github.com/confighub/cub-server/internal/config"
 )
@@ -36,67 +33,68 @@ func installerOptions(t *testing.T, keycloak bool) (config.Options, *config.Surf
 	return opts, s
 }
 
-// flagValues returns the values of every occurrence of flag in args.
-func flagValues(args []string, flag string) []string {
-	var out []string
-	for i := 0; i+1 < len(args); i++ {
-		if args[i] == flag {
-			out = append(out, args[i+1])
-		}
-	}
-	return out
-}
-
 // A local install selects the bundled database and NodePorts, and passes the
 // instance's addresses, ports, administrator key and images as the package's
 // inputs.
-func TestInstallerArgs(t *testing.T) {
+func TestInstallerSetup(t *testing.T) {
 	opts, s := installerOptions(t, false)
-	args, err := installerArgs(opts, s, "oci://ghcr.io/confighub/packages/confighub:0.10.3", "/work")
+	setup, err := installerSetup(opts, s, "oci://ghcr.io/confighub/packages/confighub:0.10.3", "/work")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := flagValues(args, "--pull"); !slices.Equal(got, []string{"oci://ghcr.io/confighub/packages/confighub:0.10.3"}) {
-		t.Errorf("pulls %v", got)
+	if setup.Pull != "oci://ghcr.io/confighub/packages/confighub:0.10.3" || setup.WorkDir != "/work" || setup.Namespace != "confighub" || !setup.Render {
+		t.Errorf("pulls %q into %q, namespace %q, render %v", setup.Pull, setup.WorkDir, setup.Namespace, setup.Render)
 	}
-	if got := flagValues(args, "--select"); !slices.Equal(got, []string{"bundled-postgres", "nodeport"}) {
-		t.Errorf("selects %v, want bundled-postgres and nodeport", got)
+	if !slices.Equal(setup.Select, []string{"bundled-postgres", "nodeport"}) || setup.Preset != "" {
+		t.Errorf("selects %v (preset %q), want bundled-postgres and nodeport", setup.Select, setup.Preset)
 	}
-	inputs := flagValues(args, "--input")
-	for _, want := range []string{
-		"api_url=http://localhost:32180", "ui_url=http://localhost:32183",
-		"admin_jwk=" + s.Get(config.AdminJWKEnv),
-		"api_node_port=32180", "oci_node_port=32181", "ui_node_port=32183",
+	for name, want := range map[string]string{
+		"api_url": "http://localhost:32180", "ui_url": "http://localhost:32183",
+		"admin_jwk":     s.Get(config.AdminJWKEnv),
+		"api_node_port": "32180", "oci_node_port": "32181", "ui_node_port": "32183",
 	} {
-		if !slices.Contains(inputs, want) {
-			t.Errorf("no --input %s in %v", want, inputs)
+		if got := setup.Inputs[name]; got != want {
+			t.Errorf("input %s = %q, want %q", name, got, want)
 		}
 	}
-	images := flagValues(args, "--set-image")
-	for _, want := range []string{
-		"ghcr.io/confighubai/confighub=ghcr.io/confighubai/confighub:v0.10.3",
-		"ghcr.io/confighub/ui=ghcr.io/confighub/ui:v0.10.3",
-		"postgres=" + config.DefaultDatabaseImage,
+	for name, want := range map[string]string{
+		"ghcr.io/confighubai/confighub": "ghcr.io/confighubai/confighub:v0.10.3",
+		"ghcr.io/confighub/ui":          "ghcr.io/confighub/ui:v0.10.3",
+		"postgres":                      config.DefaultDatabaseImage,
 	} {
-		if !slices.Contains(images, want) {
-			t.Errorf("no --set-image %s in %v", want, images)
+		if got := setup.SetImage[name]; got != want {
+			t.Errorf("image %s set to %q, want %q", name, got, want)
 		}
 	}
-	for _, input := range inputs {
-		if strings.HasPrefix(input, "keycloak_") {
-			t.Errorf("passed %s without Keycloak", input)
+	for name := range setup.Inputs {
+		if strings.HasPrefix(name, "keycloak_") {
+			t.Errorf("passed %s without Keycloak", name)
 		}
-		// Unset, the package leaves OCI_EXTERNAL_URL empty and advertises the
-		// NodePort.
-		if strings.HasPrefix(input, "oci_url=") {
-			t.Errorf("passed %s with no registry URL", input)
-		}
+	}
+	// Unset, the package leaves OCI_EXTERNAL_URL empty and advertises the
+	// NodePort.
+	if got, ok := setup.Inputs["oci_url"]; ok {
+		t.Errorf("passed oci_url %q with no registry URL", got)
+	}
+}
+
+// An install with nothing to select renders the package's minimal preset.
+func TestInstallerSetupMinimal(t *testing.T) {
+	opts, s := installerOptions(t, false)
+	opts.Database = config.DatabaseExternal
+	opts.APINodePort, opts.OCINodePort, opts.UINodePort = 0, 0, 0
+	setup, err := installerSetup(opts, s, "/pkg", "/work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if setup.Preset != "minimal" || len(setup.Select) != 0 {
+		t.Errorf("preset %q, selects %v; want the minimal preset alone", setup.Preset, setup.Select)
 	}
 }
 
 // The registry's URL reaches the package as oci_url, whether it was given now
 // or kept from the previous run.
-func TestInstallerArgsWithOCIURL(t *testing.T) {
+func TestInstallerSetupWithOCIURL(t *testing.T) {
 	for name, prior := range map[string]config.Preserved{
 		"given now":              nil,
 		"kept from the last run": {config.OCIURLEnv: "https://confighub-oci.example.com"},
@@ -110,12 +108,12 @@ func TestInstallerArgsWithOCIURL(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			args, err := installerArgs(opts, s, "/pkg", "/work")
+			setup, err := installerSetup(opts, s, "/pkg", "/work")
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !slices.Contains(flagValues(args, "--input"), "oci_url=https://confighub-oci.example.com") {
-				t.Errorf("no --input oci_url in %v", args)
+			if got := setup.Inputs["oci_url"]; got != "https://confighub-oci.example.com" {
+				t.Errorf("input oci_url = %q", got)
 			}
 		})
 	}
@@ -123,30 +121,29 @@ func TestInstallerArgsWithOCIURL(t *testing.T) {
 
 // With Keycloak, the component is selected and given its address, without the
 // trailing slash, and the public half of the server's client key.
-func TestInstallerArgsWithKeycloak(t *testing.T) {
+func TestInstallerSetupWithKeycloak(t *testing.T) {
 	opts, s := installerOptions(t, true)
-	args, err := installerArgs(opts, s, "/pkg", "/work")
+	setup, err := installerSetup(opts, s, "/pkg", "/work")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(flagValues(args, "--select"), "keycloak") {
-		t.Errorf("did not select keycloak: %v", args)
+	if !slices.Contains(setup.Select, "keycloak") {
+		t.Errorf("did not select keycloak: %v", setup.Select)
 	}
 	jwks, err := config.ClientJWKS(s.Get(config.KeycloakClientKeyEnv))
 	if err != nil {
 		t.Fatal(err)
 	}
-	inputs := flagValues(args, "--input")
-	for _, want := range []string{
-		"keycloak_url=http://localhost:32182", "keycloak_client_jwks=" + jwks, "keycloak_node_port=32182",
-		"keycloak_org_domain=" + config.DefaultKeycloakOrgDomain, "keycloak_ssl_required=none",
+	for name, want := range map[string]string{
+		"keycloak_url": "http://localhost:32182", "keycloak_client_jwks": jwks, "keycloak_node_port": "32182",
+		"keycloak_org_domain": config.DefaultKeycloakOrgDomain, "keycloak_ssl_required": "none",
 	} {
-		if !slices.Contains(inputs, want) {
-			t.Errorf("no --input %s in %v", want, inputs)
+		if got := setup.Inputs[name]; got != want {
+			t.Errorf("input %s = %q, want %q", name, got, want)
 		}
 	}
-	if !slices.Contains(flagValues(args, "--set-image"), "quay.io/keycloak/keycloak="+config.DefaultKeycloakImage) {
-		t.Errorf("did not set Keycloak's image: %v", args)
+	if got := setup.SetImage["quay.io/keycloak/keycloak"]; got != config.DefaultKeycloakImage {
+		t.Errorf("Keycloak's image set to %q", got)
 	}
 }
 
@@ -180,41 +177,11 @@ func TestPackageVersionFor(t *testing.T) {
 	}
 }
 
-// The installer is found as a cub plugin, in the plugins directory of the cub
-// configuration, by the command it provides.
-func TestInstallerPlugin(t *testing.T) {
-	config := t.TempDir()
-	t.Setenv("CUB_CONFIG", config)
-	if _, err := installerPlugin(); err == nil || !strings.Contains(err.Error(), installerInstall) {
-		t.Errorf("got %v, want a refusal saying how to install it", err)
-	}
-	dir := filepath.Join(config, "plugins", "installer")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := coreplugin.Write(dir, coreplugin.Manifest{
-		Name:     "installer",
-		Commands: []coreplugin.Command{{Name: "installer", Entrypoint: "installer"}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	got, err := installerPlugin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := filepath.Join(dir, "installer"); got != want {
-		t.Errorf("found %s, want %s", got, want)
-	}
-}
-
 func TestParseInstallerVersion(t *testing.T) {
 	for in, want := range map[string]bool{"0.3.4": true, "v0.3.4": true, "dev": false, "0.3": false} {
 		if _, ok := parseInstallerVersion(in); ok != want {
 			t.Errorf("parseInstallerVersion(%q) ok = %v, want %v", in, ok, want)
 		}
-	}
-	if v, _ := parseInstallerVersion("0.3.3"); !olderThan(v, minimumInstallerVersion) {
-		t.Error("0.3.3 was not older than the minimum")
 	}
 }
 
@@ -259,15 +226,11 @@ func TestConfigDigestsFollowTheConfiguration(t *testing.T) {
 	}
 }
 
-// The real installer, rendering this repository's package: the render reads
-// back the way a plugin render does, so re-running and the other commands work
-// on it. Skipped without installer 0.3.4 or later, as a cub plugin or in
-// $INSTALLER.
+// The installer, rendering this repository's package: the render reads back
+// the way a plugin render does, so re-running and the other commands work on
+// it.
 func TestRenderWithInstaller(t *testing.T) {
 	ctx := context.Background()
-	if _, _, err := installerBinary(ctx); err != nil {
-		t.Skipf("no installer: %v", err)
-	}
 	pkg, err := filepath.Abs(filepath.Join("..", "config", "package"))
 	if err != nil {
 		t.Fatal(err)

@@ -5,10 +5,15 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/confighub/installer/pkg/installer"
+
 	"github.com/confighub/cub-server/internal/install"
 )
 
 func main() {
+	// Rendering with the installer (install --installer) runs kustomize, whose
+	// transform step re-executes this binary; this is that run.
+	installer.RunTransformerIfRequested()
 	// When cub installs/upgrades this binary as a plugin it runs it as a hook to
 	// collect the command manifest; handle that and exit. Otherwise run normally —
 	// the binary works both as `cub server …` and as a standalone `cub-server …`.
