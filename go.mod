@@ -3,9 +3,9 @@ module github.com/confighub/cub-server
 go 1.26.0
 
 require (
-	github.com/confighub/installer v0.4.0
-	github.com/confighub/sdk/configkit/k8skit v0.11.4
-	github.com/confighub/sdk/core v0.11.4
+	github.com/confighub/installer v0.4.1
+	github.com/confighub/sdk/configkit/k8skit v0.11.13
+	github.com/confighub/sdk/core v0.11.13
 	github.com/google/uuid v1.6.0
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 	github.com/spf13/cobra v1.10.2
@@ -35,15 +35,15 @@ require (
 	github.com/cockroachdb/errors v1.11.3 // indirect
 	github.com/cockroachdb/logtags v0.0.0-20230118201751-21c54148d20b // indirect
 	github.com/cockroachdb/redact v1.1.5 // indirect
-	github.com/confighub/sdk/configkit/appyamlkit v0.11.4 // indirect
-	github.com/confighub/sdk/configkit/envkit v0.11.4 // indirect
-	github.com/confighub/sdk/configkit/inikit v0.11.4 // indirect
-	github.com/confighub/sdk/configkit/jsonkit v0.11.4 // indirect
-	github.com/confighub/sdk/configkit/propkit v0.11.4 // indirect
-	github.com/confighub/sdk/configkit/textkit v0.11.4 // indirect
-	github.com/confighub/sdk/configkit/tomlkit v0.11.4 // indirect
-	github.com/confighub/sdk/configkit/yqkit v0.11.4 // indirect
-	github.com/confighub/sdk/function-impl v0.11.4 // indirect
+	github.com/confighub/sdk/configkit/appyamlkit v0.11.13 // indirect
+	github.com/confighub/sdk/configkit/envkit v0.11.13 // indirect
+	github.com/confighub/sdk/configkit/inikit v0.11.13 // indirect
+	github.com/confighub/sdk/configkit/jsonkit v0.11.13 // indirect
+	github.com/confighub/sdk/configkit/propkit v0.11.13 // indirect
+	github.com/confighub/sdk/configkit/textkit v0.11.13 // indirect
+	github.com/confighub/sdk/configkit/tomlkit v0.11.13 // indirect
+	github.com/confighub/sdk/configkit/yqkit v0.11.13 // indirect
+	github.com/confighub/sdk/function-impl v0.11.13 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dimchansky/utfbom v1.1.1 // indirect
 	github.com/elliotchance/orderedmap v1.8.0 // indirect
