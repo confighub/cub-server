@@ -1,7 +1,9 @@
 package install
 
 import (
+	"errors"
 	"io"
+	"net/http"
 	"strings"
 	"testing"
 )
@@ -80,8 +82,9 @@ func TestResolveImageDoesNotUpgradeOnAReRun(t *testing.T) {
 // With no network and no --image there is nothing to install, and saying so is
 // better than installing a version nobody chose.
 func TestResolveImageFailsRatherThanGuessing(t *testing.T) {
-	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:9")
-	t.Setenv("HTTP_PROXY", "http://127.0.0.1:9")
+	saved := registryClient
+	registryClient = &http.Client{Transport: noNetwork{}}
+	t.Cleanup(func() { registryClient = saved })
 
 	o := &Options{}
 	err := resolveImage(discardUI(), o, "")
@@ -97,6 +100,13 @@ func TestResolveImageFailsRatherThanGuessing(t *testing.T) {
 }
 
 func discardUI() UI { return UI{Out: io.Discard} }
+
+// noNetwork is a transport that reaches nothing.
+type noNetwork struct{}
+
+func (noNetwork) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("no network")
+}
 
 // A released server older than the first one this plugin configures is refused,
 // whichever way it was chosen. The rendered configuration would stop it

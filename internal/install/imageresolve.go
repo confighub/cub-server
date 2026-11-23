@@ -33,6 +33,12 @@ import (
 // version anyone should be installed onto.
 var semverTag = regexp.MustCompile(`^v(\d+)\.(\d+)\.(\d+)$`)
 
+// registryClient is how the server's versions are listed. A test that takes the
+// network away replaces it rather than setting a proxy in the environment: the
+// default transport reads the proxy once per process, so the setting would
+// outlive the test.
+var registryClient = &http.Client{Timeout: 20 * time.Second}
+
 // resolveLatestImage asks the registry which versions exist and returns the
 // highest.
 //
@@ -140,7 +146,7 @@ func getTags(ctx context.Context, url, token string) (*http.Response, error) {
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	return (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	return registryClient.Do(req)
 }
 
 // challengeParam matches one key="value" pair of a WWW-Authenticate header.
@@ -180,7 +186,7 @@ func pullToken(ctx context.Context, challenge, repo string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	resp, err := registryClient.Do(req)
 	if err != nil {
 		return "", err
 	}
