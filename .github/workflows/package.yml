@@ -26,7 +26,7 @@ permissions:
   contents: read
 
 env:
-  INSTALLER_VERSION: v0.4.0
+  INSTALLER_VERSION: v0.4.1
 
 jobs:
   package:

@@ -23,11 +23,12 @@ import (
 //
 // With --installer, the manifests come from ConfigHub's installer package,
 // pulled from the registry the server image comes from and rendered by the
-// installer, which this plugin links, instead of from its own manifests. Everything around the
-// render stays this plugin's: it still resolves the images and ports, generates
-// the keys, the passwords and the Secrets -- which the package leaves out -- and
-// applies, waits and signs in. What the installer renders is passed to it as the
-// package's inputs, so the two renders describe the same instance.
+// installer, which this plugin links, instead of from its own manifests.
+// Everything around the render stays this plugin's: it still resolves the
+// images and ports, generates the keys, the passwords and the Secrets -- which
+// the package leaves out -- and applies, waits and signs in. What the
+// installer renders is passed to it as the package's inputs, so the two renders
+// describe the same instance.
 
 // installerDir is the installer's work directory. Its presence is how a later
 // command knows the instance was rendered with the installer.
