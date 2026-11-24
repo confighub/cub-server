@@ -65,6 +65,9 @@ type upgradePlan struct {
 	from, to string
 	patches  []deploymentPatch
 	changes  []string
+	// images are the distinct images the patches move to, for checking that the
+	// registry has them.
+	images []string
 }
 
 type deploymentPatch struct {
@@ -101,14 +104,11 @@ func RunUpgrade(ctx context.Context, u UI, o *UpgradeOptions) error {
 
 	target := o.Version
 	if target == "" {
-		resolveCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		latest, err := resolveLatestImage(resolveCtx, GHCR.Server)
-		cancel()
+		newest, err := newestRelease(ctx)
 		if err != nil {
-			return fmt.Errorf("could not ask the registry which ConfigHub version is newest: %w\n"+
-				"    Name one instead: cub server upgrade --version <version>", err)
+			return err
 		}
-		target = latest[strings.LastIndex(latest, ":")+1:]
+		target = newest
 	}
 	if !strings.HasPrefix(target, "v") {
 		target = "v" + target
@@ -153,8 +153,19 @@ func RunUpgrade(ctx context.Context, u UI, o *UpgradeOptions) error {
 		return err
 	}
 
+	u.step("Looking for %s in the instance's registry", target)
+	imageLines, missing := imageCheckLines(checkImages(ctx, plan.images))
+	crossing := minorChangeLines(current, targetVersion)
+
 	if !o.Apply {
-		return reportUpgradePlan(u, o, kube, plan, paths, unused)
+		notes := append(imageLines, backupLines(kube, o.Namespace, currentTag, hasBundledDatabase(ctx, kube, o.Namespace))...)
+		notes = append(notes, crossing...)
+		return reportUpgradePlan(u, o, kube, plan, paths, append(notes, unused...))
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("the registry does not have %s\n"+
+			"    The server is stopped before its new image is pulled, so it would stay down.\n"+
+			"    Copy the image into the registry, then run this again", strings.Join(missing, ", "))
 	}
 
 	// The server first: its init container migrates the database, and a UI
@@ -174,11 +185,7 @@ func RunUpgrade(ctx context.Context, u UI, o *UpgradeOptions) error {
 
 	lines := append([]string{}, plan.changes...)
 	if api := advertisedAPIURL(ctx, kube, o.Namespace); api != "" {
-		if got, err := reportedVersion(ctx, api); err == nil {
-			lines = append(lines, "", "The API at "+api+" reports "+got+".")
-		} else {
-			lines = append(lines, "", "Could not ask the API at "+api+" for its version: "+err.Error())
-		}
+		lines = append(lines, checkUpgraded(ctx, u, api, target)...)
 	}
 	lines = append(lines, "",
 		"The live Deployments now differ from any manifests they were applied from.",
@@ -187,9 +194,65 @@ func RunUpgrade(ctx context.Context, u UI, o *UpgradeOptions) error {
 	for _, p := range paths {
 		lines = append(lines, "  "+p)
 	}
+	lines = append(lines, crossing...)
 	lines = append(lines, unused...)
 	u.section("Upgraded to "+target+".", lines...)
 	return nil
+}
+
+// apiSettleTimeout is how long an upgraded instance gets to answer at its own
+// address. The rollout is already complete by then; this is the load balancer
+// in front of it registering the new pod, which takes minutes on some.
+var apiSettleTimeout = 5 * time.Minute
+
+// checkRetryFor is how long a failing check is retried after an upgrade.
+var checkRetryFor = time.Minute
+
+func anyFailed(results []checkResult) bool {
+	for _, r := range results {
+		if r.err != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// checkUpgraded waits for the instance to answer at the address its clients
+// use, runs the checks `cub server check` runs, and returns what to say about
+// the version it reports. A failed check is reported and not returned: the
+// Deployments are upgraded either way, and what is wrong is an address.
+func checkUpgraded(ctx context.Context, u UI, api, target string) []string {
+	u.detail("waiting for %s to answer", api)
+	if err := waitForAPI(ctx, api, apiSettleTimeout); err != nil {
+		return []string{"", "The API at " + api + " did not answer from this machine: " + err.Error(),
+			"Once it does, check the instance:  cub server check --url " + api}
+	}
+	// The UI's pod is the last to roll, and its address can lag its readiness
+	// by a moment, as the API's does. A check that fails is tried again for a
+	// while before it is believed.
+	client := &http.Client{Timeout: 10 * time.Second}
+	results := runChecks(ctx, client, api)
+	for deadline := time.Now().Add(checkRetryFor); anyFailed(results) && time.Now().Before(deadline); {
+		select {
+		case <-ctx.Done():
+		case <-time.After(5 * time.Second):
+		}
+		if ctx.Err() != nil {
+			break
+		}
+		results = runChecks(ctx, client, api)
+	}
+	if err := reportChecks(u, api, results); err != nil {
+		u.warn("%v; clients may not reach the instance until they pass", err)
+	}
+	got, err := reportedVersion(ctx, api)
+	switch {
+	case err != nil:
+		return []string{"", "Could not ask the API at " + api + " for its version: " + err.Error()}
+	case got != target:
+		return []string{"", "The API at " + api + " reports " + got + ", not " + target + "."}
+	}
+	return []string{"", "The API at " + api + " reports " + got + "."}
 }
 
 // readDeploymentImages reads one Deployment's container images.
@@ -232,6 +295,7 @@ func planUpgrade(namespace string, server, ui *deploymentImages, serverImage, fr
 	plan := upgradePlan{from: from, to: target}
 	serverRepo := imageRepo(serverImage)
 
+	seen := map[string]bool{}
 	type change struct{ containers, initContainers map[string]string }
 	for _, d := range []struct {
 		images  *deploymentImages
@@ -259,6 +323,10 @@ func planUpgrade(namespace string, server, ui *deploymentImages, serverImage, fr
 					continue
 				}
 				set.to[name] = next
+				if !seen[next] {
+					seen[next] = true
+					plan.images = append(plan.images, next)
+				}
 				plan.changes = append(plan.changes, fmt.Sprintf("%s %s %s: %s -> %s", d.images.name, set.kind, name, image, next))
 			}
 		}
@@ -317,7 +385,7 @@ func writeUpgradePatches(dir string, plan upgradePlan) ([]string, error) {
 	return paths, nil
 }
 
-func reportUpgradePlan(u UI, o *UpgradeOptions, kube kubeEnv, plan upgradePlan, paths []string, unused []string) error {
+func reportUpgradePlan(u UI, o *UpgradeOptions, kube kubeEnv, plan upgradePlan, paths []string, notes []string) error {
 	lines := append([]string{}, plan.changes...)
 	lines = append(lines, "",
 		"Nothing was changed. Merge these patches into the manifests you apply,",
@@ -332,7 +400,7 @@ func reportUpgradePlan(u UI, o *UpgradeOptions, kube kubeEnv, plan upgradePlan, 
 		lines = append(lines, "  kubectl "+strings.Join(args, " "))
 	}
 	lines = append(lines, "", "or have this command do it: re-run with --apply.")
-	lines = append(lines, unused...)
+	lines = append(lines, notes...)
 	u.section("Upgrade from "+plan.from+" to "+plan.to+".", lines...)
 	return nil
 }
