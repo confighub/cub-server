@@ -339,11 +339,31 @@ a mirror (copy the new version into it first).
 It also reads the variables the server is given, from its Deployment and the ConfigMaps and Secrets
 it reads with `envFrom`, and lists any the new version does not read, such as `WORKER_MASTER_SECRET`
 after v0.10.0, with where each is set. It reads the names only and changes none of them: they live
-in your manifests or secret manager, and an unread variable does no harm.
+in your manifests or secret manager, and an unread variable does no harm. Variables the server
+still reads under an older name are listed the same way: the token signing key as
+`JWT_PRIVATE_KEY_JWK`, and the registry's address as `OCI_EXTERNAL_HOST`, `OCI_EXTERNAL_PORT` and
+`OCI_TOKEN_REALM`, which one `OCI_EXTERNAL_URL` replaces.
+
+The newest release is looked up on ghcr.io and, where that cannot be reached, on gcr.io; `--version`
+names one without asking either.
+
+Before it changes anything it asks the instance's registry for the images it is moving to, and
+lists each as found, not found, or unchecked. The server's Deployment is replaced, not rolled, so
+the old pod is gone before the new image is pulled: `--apply` refuses when the registry says an
+image is not there. A mirror that wants credentials cannot be asked from here and its images are
+listed as unchecked; make sure they are in it first.
+
+The plan also prints how to back the database up, as a `pg_dump` command for the bundled Postgres.
+The new version migrates the database when it starts and the old one cannot run on a migrated
+database, so a backup taken first is the only way back. And when the upgrade crosses a minor
+version, which before 1.0 is not backward compatible, it lists what has to move with the server:
+cub, the bot on each attached cluster, and your own API clients.
 
 It writes one strategic-merge patch per Deployment to `--out-dir`. Merge them into the manifests
 you apply (they also work as kustomize patches), or run the `kubectl patch` commands it prints.
-`--apply` patches the running Deployments itself, server first, and waits for each rollout. The
+`--apply` patches the running Deployments itself, server first, and waits for each rollout. It then
+waits for the API to answer at its own address, which behind a load balancer can take a few minutes
+more, and runs the checks of [`cub server check`](#checking-an-instance). The
 manifests still need the same change, or their next apply undoes the upgrade.
 
 ## Checking an instance

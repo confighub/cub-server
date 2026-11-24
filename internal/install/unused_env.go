@@ -51,8 +51,9 @@ type unusedVar struct {
 }
 
 // unusedEnv finds the variables in sources that a server at version target does
-// not read, and the legacy name of the token signing key, which it still reads
-// but which is either shadowed or due a rename.
+// not read, and those it still reads under a name it has since replaced: the
+// legacy name of the token signing key, which is either shadowed or due a
+// rename, and the registry's address given in parts.
 func unusedEnv(sources []envSource, target [3]int) []unusedVar {
 	setIn := map[string][]string{}
 	for _, s := range sources {
@@ -78,16 +79,34 @@ func unusedEnv(sources []envSource, target [3]int) []unusedVar {
 		}
 		out = append(out, unusedVar{config.LegacySigningKeyEnv, where, advice})
 	}
+
+	// The registry's address in three parts. Still read, as overrides of
+	// OCI_EXTERNAL_URL, which says all three at once from v0.10.4 on. Reported
+	// only when the URL is not set: beside it, the parts are deliberate overrides.
+	if !olderThan(target, ociURLSince) && len(setIn[config.OCIURLEnv]) == 0 {
+		for _, name := range ociAddressParts {
+			for _, where := range setIn[name] {
+				out = append(out, unusedVar{name, where,
+					"still read; " + config.OCIURLEnv + "=https://<host>[:<port>] says the registry's host, port and token realm in one. Set it, then remove this"})
+			}
+		}
+	}
 	return out
 }
+
+// ociURLSince is the first server that reads OCI_EXTERNAL_URL.
+var ociURLSince = [3]int{0, 10, 4}
+
+// ociAddressParts are the variables OCI_EXTERNAL_URL stands in for.
+var ociAddressParts = []string{"OCI_EXTERNAL_HOST", "OCI_EXTERNAL_PORT", "OCI_TOKEN_REALM"}
 
 // unusedEnvLines formats findings for the upgrade report.
 func unusedEnvLines(found []unusedVar, unreadable []string) []string {
 	var lines []string
 	if len(found) > 0 {
 		lines = append(lines, "",
-			"The instance sets variables the new version does not need. They do no harm,",
-			"and nothing here changes them. Consider removing them where you set them:",
+			"The instance sets variables the new version does not need, or has a newer name",
+			"for. They do no harm, and nothing here changes them. Where you set them:",
 			"")
 		width := 0
 		for _, f := range found {

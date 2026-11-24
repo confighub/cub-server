@@ -91,45 +91,81 @@ func highestSemver(tags []string) (string, error) {
 	return versions[len(versions)-1].tag, nil
 }
 
+// maxTagPages bounds how many pages of tags are read from one repository. Far
+// more than a real one has; it only stops a registry whose "next" links loop.
+const maxTagPages = 100
+
+// registryClient makes the requests to a registry. A variable for tests.
+var registryClient = &http.Client{Timeout: 20 * time.Second}
+
 // listTags reads a repository's tags from an OCI registry.
 //
 // Anonymously, by the registry's own rules: the first request goes without a
 // token, and a 401 says where a pull token is to be had (ghcr.io and gcr.io
 // each name a different place), so no registry's token endpoint is hard-coded.
+//
+// All of them: a registry answers with a page at a time and names the next in a
+// Link header. ghcr.io's pages hold at most 1000 tags in the order they were
+// pushed, so in a repository with more, the newest releases are on a later
+// page, and reading only the first one finds an old release to be the newest.
 func listTags(ctx context.Context, image string) ([]string, error) {
 	registry, repo, ok := strings.Cut(image, "/")
 	if !ok {
 		return nil, fmt.Errorf("cannot read a registry from %q", image)
 	}
-	url := fmt.Sprintf("https://%s/v2/%s/tags/list?n=1000", registry, repo)
+	base := "https://" + registry
+	url := fmt.Sprintf("%s/v2/%s/tags/list?n=1000", base, repo)
 
-	resp, err := getTags(ctx, url, "")
-	if err != nil {
-		return nil, fmt.Errorf("listing tags in %s: %w", image, err)
-	}
-	if resp.StatusCode == http.StatusUnauthorized {
-		challenge := resp.Header.Get("WWW-Authenticate")
-		resp.Body.Close()
-		token, err := pullToken(ctx, challenge, repo)
+	var tags []string
+	token := ""
+	for page := 0; url != "" && page < maxTagPages; page++ {
+		resp, err := getTags(ctx, url, token)
 		if err != nil {
-			return nil, fmt.Errorf("getting a pull token for %s: %w", image, err)
-		}
-		if resp, err = getTags(ctx, url, token); err != nil {
 			return nil, fmt.Errorf("listing tags in %s: %w", image, err)
 		}
+		if resp.StatusCode == http.StatusUnauthorized && token == "" {
+			challenge := resp.Header.Get("WWW-Authenticate")
+			resp.Body.Close()
+			if token, err = pullToken(ctx, challenge, repo); err != nil {
+				return nil, fmt.Errorf("getting a pull token for %s: %w", image, err)
+			}
+			if resp, err = getTags(ctx, url, token); err != nil {
+				return nil, fmt.Errorf("listing tags in %s: %w", image, err)
+			}
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("listing tags in %s: %s", image, resp.Status)
+		}
+		var body struct {
+			Tags []string `json:"tags"`
+		}
+		err = json.NewDecoder(resp.Body).Decode(&body)
+		next := nextPage(base, resp.Header.Get("Link"))
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("reading the tag list for %s: %w", image, err)
+		}
+		tags = append(tags, body.Tags...)
+		url = next
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("listing tags in %s: %s", image, resp.Status)
-	}
+	return tags, nil
+}
 
-	var body struct {
-		Tags []string `json:"tags"`
+// nextLink matches the target of a rel="next" Link header.
+var nextLink = regexp.MustCompile(`<([^>]+)>\s*;\s*rel="?next"?`)
+
+// nextPage is the URL of the page after the one a Link header came with, or
+// empty on the last. Registries give it relative to their own address.
+func nextPage(base, link string) string {
+	m := nextLink.FindStringSubmatch(link)
+	if m == nil {
+		return ""
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return nil, fmt.Errorf("reading the tag list for %s: %w", image, err)
+	if strings.HasPrefix(m[1], "/") {
+		return base + m[1]
 	}
-	return body.Tags, nil
+	return m[1]
 }
 
 func getTags(ctx context.Context, url, token string) (*http.Response, error) {
@@ -140,7 +176,7 @@ func getTags(ctx context.Context, url, token string) (*http.Response, error) {
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	return (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	return registryClient.Do(req)
 }
 
 // challengeParam matches one key="value" pair of a WWW-Authenticate header.
