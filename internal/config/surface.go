@@ -9,6 +9,10 @@ import (
 // OCIURLEnv is where the server reads the registry's external URL from.
 const OCIURLEnv = "OCI_EXTERNAL_URL"
 
+// ExternalURLEnv is where the server reads the API's own address from, as its
+// clients reach it. Read from v0.11.20 on; an older server ignores it.
+const ExternalURLEnv = "CONFIGHUB_EXTERNAL_URL"
+
 // Surface is everything the server reads, resolved for one instance.
 type Surface struct {
 	Vars []Var
@@ -52,7 +56,8 @@ func (s *Surface) Get(name string) string {
 
 // Preserved is what a previous run generated, keyed by variable name, and the
 // OCI_EXTERNAL_URL it was given (see OCIURLEnv), which a re-run without the flag
-// keeps rather than drops.
+// keeps rather than drops, as it keeps a CONFIGHUB_EXTERNAL_URL (see
+// ExternalURLEnv).
 //
 // Re-running the generator must not rotate anything: a fresh CONFIGHUB_TOKEN_SIGNING_KEY_JWK
 // invalidates every session on the next restart, and a fresh database password
@@ -168,6 +173,27 @@ func Build(opts Options, prior Preserved) (*Surface, error) {
 	add(Var{
 		Name: "CONFIGHUB_URL", Placement: InUIConfigMap, Value: opts.APIURL,
 		Doc: "Where the browser reaches the ConfigHub API. The UI is served from a different origin.",
+	})
+
+	// The same address, for the server, when it is an https one. A key login (`cub auth login
+	// --private-key`, and every bot) is signed for the token endpoint at the
+	// address the client used, and the server accepts it for the address it saw
+	// the request arrive at. Behind a load balancer that terminates TLS and adds
+	// no X-Forwarded-Proto, the client used https and the server saw http, and
+	// every key login is refused. Told its address, the server accepts that one
+	// too, and advertises its token endpoint there.
+	//
+	// An http address is the one the server sees already, so nothing is emitted
+	// for it. One the operator added to the rendered ConfigMap is kept, as the
+	// registry's is: an instance installed on a NodePort and then put behind a
+	// load balancer has its address there and nowhere else.
+	externalURL := prior[ExternalURLEnv]
+	if strings.HasPrefix(opts.APIURL, "https://") {
+		externalURL = opts.APIURL
+	}
+	add(Var{
+		Name: ExternalURLEnv, Placement: InConfigMap, Value: externalURL,
+		Doc: "Where clients reach the ConfigHub API. Key logins signed for it are accepted, and the token endpoint is advertised there.",
 	})
 
 	// Where the UI is, for the server to advertise in /api/info. `cub auth login`

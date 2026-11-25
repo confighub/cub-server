@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/confighub/cub-server/internal/config"
 )
 
 // Upgrading an instance that is already running.
@@ -160,6 +162,11 @@ func RunUpgrade(ctx context.Context, u UI, o *UpgradeOptions) error {
 	if !o.Apply {
 		notes := append(imageLines, backupLines(kube, o.Namespace, currentTag, hasBundledDatabase(ctx, kube, o.Namespace))...)
 		notes = append(notes, crossing...)
+		if !setsEnv(sources, config.ExternalURLEnv) {
+			if api := advertisedAPIURL(ctx, kube, o.Namespace); api != "" {
+				notes = append(notes, keyLoginLines(ctx, &http.Client{Timeout: 10 * time.Second}, api, targetVersion)...)
+			}
+		}
 		return reportUpgradePlan(u, o, kube, plan, paths, append(notes, unused...))
 	}
 	if len(missing) > 0 {
@@ -198,6 +205,63 @@ func RunUpgrade(ctx context.Context, u UI, o *UpgradeOptions) error {
 	lines = append(lines, unused...)
 	u.section("Upgraded to "+target+".", lines...)
 	return nil
+}
+
+// externalURLSince is the first server that reads CONFIGHUB_EXTERNAL_URL.
+var externalURLSince = [3]int{0, 11, 20}
+
+// setsEnv reports whether the server's container is given a variable.
+func setsEnv(sources []envSource, name string) bool {
+	for _, s := range sources {
+		for _, k := range s.keys {
+			if k == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// keyLoginLines is what the upgrade plan says about key logins for a server that
+// is not told its address (CONFIGHUB_EXTERNAL_URL).
+//
+// Asked at the address its clients use, the server shows which scheme it sees.
+// When that differs, a server from v0.10.0 on refuses every key login, and the
+// plan says to add the setting. When the server cannot be asked from this
+// machine and clients reach it over https, nothing in the cluster says whether
+// the load balancer in front of it sends X-Forwarded-Proto, so the plan says
+// when the setting is needed. Empty when the server sees the address its
+// clients use, or is reached over http, where there is no TLS to terminate.
+func keyLoginLines(ctx context.Context, client *http.Client, api string, target [3]int) []string {
+	r := checkKeyLogin(ctx, client, api)
+	var lines []string
+	switch {
+	case r.err != nil:
+		lines = []string{"",
+			"Key logins (cub auth login --private-key, and every bot) need a setting first:",
+			"the server sees another scheme than clients of " + api + " use, as it does",
+			"when a load balancer terminates TLS in front of it and adds no X-Forwarded-Proto.",
+			"From v0.10.0 on, a server refuses a key login signed for another address than the",
+			"one it sees. Before upgrading, add to the confighub-env ConfigMap:",
+		}
+	case r.skip && strings.HasPrefix(api, "https://"):
+		lines = []string{"",
+			"Key logins (cub auth login --private-key, and every bot) may need a setting first.",
+			"The server at " + api + " could not be asked from this machine which scheme",
+			"it sees. If a load balancer terminates TLS in front of it and adds no X-Forwarded-Proto,",
+			"as an AWS Network Load Balancer does, the server sees http, and from v0.10.0 on it",
+			"refuses a key login signed for another address than the one it sees. In that case,",
+			"or when unsure, add to the confighub-env ConfigMap before upgrading:",
+		}
+	default:
+		return nil
+	}
+	lines = append(lines, "", "  "+config.ExternalURLEnv+": "+api, "")
+	if olderThan(target, externalURLSince) {
+		return append(lines, fmt.Sprintf("It is read from v%d.%d.%d on, so upgrade to that release or a later one.",
+			externalURLSince[0], externalURLSince[1], externalURLSince[2]))
+	}
+	return append(lines, "The server reads it when it starts, which this upgrade makes it do.")
 }
 
 // apiSettleTimeout is how long an upgraded instance gets to answer at its own

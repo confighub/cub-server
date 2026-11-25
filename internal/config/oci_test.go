@@ -121,3 +121,26 @@ func TestValidateOCIURL(t *testing.T) {
 		}
 	}
 }
+
+// The server is told the API's address when TLS may end in front of it, and
+// keeps one the operator put in the rendered ConfigMap.
+func TestExternalURL(t *testing.T) {
+	opts := ociTestOptions("")
+	if got := buildSurface(t, opts, nil).Get(ExternalURLEnv); got != "" {
+		t.Errorf("%s = %q for an http API address, which the server sees already", ExternalURLEnv, got)
+	}
+
+	prior := Preserved{ExternalURLEnv: "https://confighub-api.example.com"}
+	kept := buildSurface(t, opts, prior)
+	if got := kept.Get(ExternalURLEnv); got != "https://confighub-api.example.com" {
+		t.Errorf("a re-run dropped the operator's %s: got %q", ExternalURLEnv, got)
+	}
+	if !inVars(kept.ConfigMapVars(), ExternalURLEnv) || inVars(kept.UIConfigMapVars(), ExternalURLEnv) {
+		t.Errorf("%s belongs in the server's ConfigMap and only there", ExternalURLEnv)
+	}
+
+	opts.APIURL = "https://api.example.com"
+	if got := buildSurface(t, opts, prior).Get(ExternalURLEnv); got != "https://api.example.com" {
+		t.Errorf("%s = %q, want the https API address", ExternalURLEnv, got)
+	}
+}

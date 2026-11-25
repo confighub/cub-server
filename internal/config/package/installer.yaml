@@ -5,7 +5,7 @@ metadata:
 installerMetadata:
   # The ConfigHub release the package runs: the server and the UI, which are
   # released together under one version.
-  version: 0.11.2
+  version: 0.11.20
   installerVersion: ">= 0.3.0"
 spec:
   bases:
@@ -161,7 +161,10 @@ spec:
       prompt: URL a browser reaches the ConfigHub API on
       description: |
         The UI calls the API from the browser, so this is the browser's
-        address for it, not a cluster-internal one.
+        address for it, not a cluster-internal one. An https address is
+        given to the server too, as CONFIGHUB_EXTERNAL_URL, so that key logins
+        work behind a load balancer that terminates TLS without forwarded
+        headers.
     - name: ui_url
       type: string
       default: ""
@@ -260,7 +263,7 @@ spec:
     - toolchain: Kubernetes/YAML
       description: |
         Tell the server where a browser reaches the UI and where clients reach
-        the OCI registry, and name the bootstrap administrator's key.
+        the OCI registry and the API, and name the bootstrap administrator's key.
       whereResource: "ConfigHub.ResourceNameWithoutScope = 'confighub-env'"
       invocations:
         - name: set-string-path
@@ -269,6 +272,12 @@ spec:
         # unset, and refuses to start with anything here but a URL.
         - name: set-string-path
           args: [v1/ConfigMap, data.OCI_EXTERNAL_URL, "{{ .Inputs.oci_url }}"]
+        # The API's address, when it is an https one: TLS may then end in
+        # front of the server, which sees http unless a forwarded header says
+        # otherwise. An http address is what the server sees already. Empty
+        # when unset, as above.
+        - name: set-string-path
+          args: [v1/ConfigMap, data.CONFIGHUB_EXTERNAL_URL, "{{ if eq (printf \"%.8s\" .Inputs.api_url) \"https://\" }}{{ .Inputs.api_url }}{{ end }}"]
         - name: set-string-path
           args: [v1/ConfigMap, data.CONFIGHUB_LOCAL_ADMIN_JWK, "{{ or .Inputs.admin_jwk \"confighubplaceholder\" }}"]
     - toolchain: Kubernetes/YAML
@@ -299,6 +308,6 @@ spec:
     envSchema: validation/env.schema.json
     runtimeSpec: validation/runtime.yaml
     howToRegenerate: |
-      image=ghcr.io/confighubai/confighub:v0.11.2
+      image=ghcr.io/confighubai/confighub:v0.11.20
       docker run --rm --entrypoint /srv/app/confighub $image docgen env > validation/env.schema.json
       docker run --rm --entrypoint /srv/app/confighub $image docgen runtime > validation/runtime.yaml
