@@ -15,6 +15,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/confighub/cub-server/internal/config"
 )
 
 // CheckOptions are the inputs to RunCheck.
@@ -78,6 +80,7 @@ func runChecks(ctx context.Context, client *http.Client, api string) []checkResu
 	results := []checkResult{{name: "API", target: api, note: info.Version}}
 	results = append(results, checkUI(ctx, client, info))
 	results = append(results, checkRegistry(ctx, client, api, info))
+	results = append(results, checkKeyLogin(ctx, client, api))
 	if info.AuthIssuer != "" {
 		results = append(results, checkIssuer(ctx, client, info.AuthIssuer))
 	}
@@ -171,6 +174,73 @@ func checkRegistry(ctx context.Context, client *http.Client, api string, info *a
 		tresp.Body.Close()
 	}
 	return r
+}
+
+// checkKeyLogin compares the token endpoint the server advertises with the
+// address it was asked at.
+//
+// A key login (`cub auth login --private-key`, and every bot) is an assertion
+// signed for the token endpoint at the address the client used. From v0.10.0
+// the server accepts it only for the address it saw the request arrive at,
+// which is the one it advertises. Behind a load balancer that terminates TLS
+// and adds no X-Forwarded-Proto (an NLB), the client used https, the server
+// saw http, and every key login is refused with "Invalid credentials".
+//
+// Only a scheme that differs on the same host fails. A server told its address
+// (CONFIGHUB_EXTERNAL_URL) advertises that one however it is reached, and
+// still accepts a login at the address of the request.
+func checkKeyLogin(ctx context.Context, client *http.Client, api string) checkResult {
+	r := checkResult{name: "Key login", target: api + tokenEndpointPath}
+	advertised := advertisedTokenEndpoint(ctx, client, api)
+	if advertised == "" {
+		r.skip, r.note = true, "the server does not say where its token endpoint is"
+		return r
+	}
+	if advertised == r.target {
+		return r
+	}
+	want, err1 := url.Parse(r.target)
+	got, err2 := url.Parse(advertised)
+	if err1 != nil || err2 != nil || !strings.EqualFold(want.Host, got.Host) || want.Scheme == got.Scheme {
+		r.note = "advertised at " + advertised
+		return r
+	}
+	r.err = fmt.Errorf("the server takes requests to %s as %s://%s, so it refuses key logins signed for the address clients use",
+		api, got.Scheme, got.Host)
+	r.hints = keyLoginHints(api)
+	return r
+}
+
+const tokenEndpointPath = "/auth/token"
+
+// keyLoginHints is what to do about a server that sees another scheme than its
+// clients use.
+func keyLoginHints(api string) []string {
+	return []string{
+		"The usual cause is a load balancer that terminates TLS in front of the server and adds no X-Forwarded-Proto.",
+		"Set " + config.ExternalURLEnv + " to " + api + " in the confighub-env ConfigMap and restart the server (read from v0.11.20 on),",
+		"or put a load balancer or ingress that sends X-Forwarded-Proto in front of it.",
+	}
+}
+
+// advertisedTokenEndpoint reads token_endpoint from the server's RFC 8414
+// document. Empty when the server serves none, or something else answers there.
+func advertisedTokenEndpoint(ctx context.Context, client *http.Client, api string) string {
+	resp, err := get(ctx, client, api+"/.well-known/oauth-authorization-server")
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	var doc struct {
+		TokenEndpoint string `json:"token_endpoint"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&doc) != nil {
+		return ""
+	}
+	return doc.TokenEndpoint
 }
 
 // challengeRealm reads the realm from a Bearer WWW-Authenticate header.

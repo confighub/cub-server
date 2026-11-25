@@ -359,6 +359,12 @@ database, so a backup taken first is the only way back. And when the upgrade cro
 version, which before 1.0 is not backward compatible, it lists what has to move with the server:
 cub, the bot on each attached cluster, and your own API clients.
 
+When the server sees `http` at the address its clients reach over `https`, and is given no
+`CONFIGHUB_EXTERNAL_URL`, the plan prints the ConfigMap entry to add first. From v0.10.0 a server
+in that state refuses every key login (see [The API's address](#the-apis-address)). The plan finds
+out by asking the server at the address in the UI's ConfigMap. When that address is an https one
+this machine cannot reach, the plan prints the entry with the condition under which it is needed.
+
 It writes one strategic-merge patch per Deployment to `--out-dir`. Merge them into the manifests
 you apply (they also work as kustomize patches), or run the `kubectl patch` commands it prints.
 `--apply` patches the running Deployments itself, server first, and waits for each rollout. It then
@@ -374,7 +380,9 @@ cub server check --url https://confighub-api.example.com
 ```
 
 `check` asks the API where the UI, the OCI registry and the identity provider are (`/api/info`)
-and tries each from this machine. It changes nothing and reads nothing from the cluster. Run it
+and tries each from this machine. It also compares the token endpoint the server advertises with
+the address it was asked at, and fails when the server sees `http` where clients use `https`,
+which makes it refuse key logins (see [The API's address](#the-apis-address)). It changes nothing and reads nothing from the cluster. Run it
 after changing how the instance is exposed: `cub cluster attach` gives Argo CD and Flux the
 registry address the server advertises, and an install's NodePort address keeps being advertised
 after the instance moves behind a load balancer. Set `OCI_EXTERNAL_URL` in the `confighub-env`
@@ -414,6 +422,29 @@ cub server install --kube-context my-cluster --oci-url https://confighub-oci.exa
 `--oci-url` is written to `OCI_EXTERNAL_URL` in the `confighub-env` ConfigMap; the port is the
 scheme's default when the URL names none. `install -i` asks for it when installing into a cluster
 you already have. A re-run without `--oci-url` keeps the one the instance was installed with. The server reads it from v0.10.4.
+
+### The API's address
+
+A key login (`cub auth login --private-key`, and every bot) is signed for the token endpoint at
+the address the client used, and the server accepts it for the address it saw the request arrive
+at. The two differ behind a load balancer that terminates TLS and passes plain HTTP on without an
+`X-Forwarded-Proto` header, as an AWS Network Load Balancer with a TLS listener does: the client
+used `https`, the server saw `http`, and every key login is refused with `Invalid credentials`.
+
+Put a load balancer or ingress that sends `X-Forwarded-Proto` in front of the API where you can:
+an AWS Application Load Balancer, or an ingress controller such as Traefik or NGINX behind the
+Network Load Balancer. The server trusts the header from a private address and then needs no
+setting. Where you can't, tell the server its address in the `confighub-env` ConfigMap and restart
+it:
+
+```yaml
+CONFIGHUB_EXTERNAL_URL: https://confighub-api.example.com
+```
+
+The server then accepts key logins signed for that address as well, and advertises its token
+endpoint there. It reads the variable from v0.11.20. `cub server check` reports an instance that
+needs it, and so does the plan `cub server upgrade` prints. The installer package sets it from an
+https `api_url`, and a re-run of `cub server install` keeps one you added.
 
 ### The database's volume
 

@@ -414,8 +414,10 @@ func readPrior(outDir string) (config.Preserved, string, string, error) {
 	adminJWK := data[config.AdminJWKEnv]
 	// Not generated, but chosen once, at install: a re-run, and 'keycloak
 	// install', render the ConfigMap again without being told.
-	if v := data[config.OCIURLEnv]; v != "" {
-		prior[config.OCIURLEnv] = v
+	for _, name := range []string{config.OCIURLEnv, config.ExternalURLEnv} {
+		if v := data[name]; v != "" {
+			prior[name] = v
+		}
 	}
 
 	// The image this instance is already on. Recovered so that re-running an

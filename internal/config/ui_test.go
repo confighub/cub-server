@@ -71,6 +71,9 @@ func TestUIValuesGoToTheUIContainer(t *testing.T) {
 	if got := s.Get("CONFIGHUB_URL"); got != "http://localhost:32180" {
 		t.Errorf("CONFIGHUB_URL = %q, want the browser's address of the API", got)
 	}
+	if got := s.Get(ExternalURLEnv); got != "" {
+		t.Errorf("%s = %q for an http address, which the server sees already", ExternalURLEnv, got)
+	}
 }
 
 func TestUIIsRenderedAsItsOwnDeploymentAndService(t *testing.T) {

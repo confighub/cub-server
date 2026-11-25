@@ -27,6 +27,18 @@ data:
   # the server refuses to start with anything but a URL here. The installer's
   # oci_url input.
   OCI_EXTERNAL_URL: ""
+  # Where clients reach the API, like https://confighub.example.com. A key
+  # login (`cub auth login --private-key`, and every bot) is signed for the
+  # token endpoint at the address the client used, and the server accepts it
+  # for the address it saw the request arrive at. Behind a load balancer that
+  # terminates TLS and adds no X-Forwarded-Proto, as an AWS Network Load
+  # Balancer does, those differ and every key login is refused; told its
+  # address here, the server accepts that one too, and advertises its token
+  # endpoint there. Empty, which the server reads as unset, leaves it with
+  # the address of each request. Not a placeholder: the server refuses to
+  # start with anything but a URL here. The installer's api_url input, when
+  # that is an https address.
+  CONFIGHUB_EXTERNAL_URL: ""
 ---
 # The UI's environment. Two ConfigMaps rather than one, so that a value only
 # the UI reads restarts the UI and leaves the server running.

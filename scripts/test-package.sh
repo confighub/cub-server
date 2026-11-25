@@ -154,6 +154,7 @@ if expect_render base bundled-postgres --components default; then
   # Empty, not a placeholder: the server reads it as unset, and refuses to
   # start with anything but a URL.
   expect_equal base OCI_EXTERNAL_URL "$(server_env base OCI_EXTERNAL_URL)" ""
+  expect_equal base CONFIGHUB_EXTERNAL_URL "$(server_env base CONFIGHUB_EXTERNAL_URL)" ""
   # The Namespace comes first, then Postgres, then the server, which migrates
   # it.
   for f in namespace-confighub.yaml:-2 statefulset-confighub-confighub-postgres.yaml:-1 service-confighub-confighub-postgres.yaml:-1; do
@@ -193,6 +194,8 @@ if expect_render nodeport bundled-postgres,nodeport --select bundled-postgres --
   expect_equal nodeport OCI_EXTERNAL_PORT "$(server_env nodeport OCI_EXTERNAL_PORT)" 31081
   expect_equal nodeport CONFIGHUB_UI_URL "$(server_env nodeport CONFIGHUB_UI_URL)" http://localhost:31083
   expect_equal nodeport CONFIGHUB_URL "$(ui_env nodeport CONFIGHUB_URL)" http://localhost:31080
+  # An http address is the one the server sees, so it is not told it.
+  expect_equal nodeport CONFIGHUB_EXTERNAL_URL "$(server_env nodeport CONFIGHUB_EXTERNAL_URL)" ""
   expect_equal nodeport CONFIGHUB_LOCAL_ADMIN_JWK "$(server_env nodeport CONFIGHUB_LOCAL_ADMIN_JWK)" "$jwk"
   [ ! -e "$(manifest nodeport service-confighub-confighub-keycloak.yaml)" ] ||
     fail "nodeport: rendered Keycloak, which wasn't selected"
@@ -203,7 +206,10 @@ fi
 # and the NodePort is not advertised beside it, since the server would read it
 # as an override of the URL's port. The Service keeps its NodePort.
 if expect_render oci-url bundled-postgres,nodeport --select bundled-postgres --select nodeport \
-  --input oci_node_port=31081 --input oci_url=https://confighub-oci.example.com; then
+  --input oci_node_port=31081 --input oci_url=https://confighub-oci.example.com \
+  --input api_url=https://confighub-api.example.com; then
+  expect_equal oci-url CONFIGHUB_EXTERNAL_URL "$(server_env oci-url CONFIGHUB_EXTERNAL_URL)" https://confighub-api.example.com
+  expect_equal oci-url CONFIGHUB_URL "$(ui_env oci-url CONFIGHUB_URL)" https://confighub-api.example.com
   expect_equal oci-url OCI_EXTERNAL_URL "$(server_env oci-url OCI_EXTERNAL_URL)" https://confighub-oci.example.com
   expect_equal oci-url OCI_EXTERNAL_PORT "$(server_env oci-url OCI_EXTERNAL_PORT)" ""
   expect_equal oci-url "the registry's Service" "$(node_port oci-url confighub-oci-server)" NodePort:31081
