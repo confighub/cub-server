@@ -5,7 +5,7 @@ metadata:
 installerMetadata:
   # The ConfigHub release the package runs: the server and the UI, which are
   # released together under one version.
-  version: 0.11.20
+  version: v0.11.20
   installerVersion: ">= 0.3.0"
 spec:
   bases:
