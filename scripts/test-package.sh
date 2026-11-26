@@ -37,7 +37,7 @@ fail() {
 version="$(yq -r .installerMetadata.version "${pkg}/installer.yaml")"
 for image in ghcr.io/confighubai/confighub ghcr.io/confighub/ui; do
   tag="$(yq -r ".images[] | select(.name == \"${image}\") | .newTag" "${pkg}/bases/default/kustomization.yaml")"
-  [ "v${version}" = "$tag" ] || fail "installerMetadata.version is ${version}, but the package runs ${image}:${tag}"
+  [ "$version" = "$tag" ] || fail "installerMetadata.version is ${version}, but the package runs ${image}:${tag}"
 done
 
 # render <case> <installer setup args...> renders the package.
